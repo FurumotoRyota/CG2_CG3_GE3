@@ -24,7 +24,6 @@
 
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "Dbghelp.lib")
 #pragma comment(lib, "dxcompiler.lib")
 #pragma comment(lib, "DirectXTex.lib")
@@ -46,6 +45,12 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 #include<fstream>
 #include <sstream>
 #include <cstring>
+
+#define DIRECTINPUT_VERSION 0x0800 // DirectInput 8.0 以降を使用することを指定, dinput.h より先に書くこと
+#include <dinput.h>
+
+#pragma comment(lib, "dinput8.lib")
+#pragma comment(lib, "dxguid.lib")
 
 using std::int32_t;
 using std::uint32_t;
@@ -139,6 +144,30 @@ void SafeRelease(T*& ptr) {
         ptr = nullptr;
     }
 }
+
+//==================================================
+// キー入力判定関数
+//==================================================
+bool PushKey(const BYTE key[256], uint8_t keyNumber)
+{
+	return (key[keyNumber] & 0x80) != 0;
+}
+
+bool ReleaseKey(const BYTE key[256], uint8_t keyNumber)
+{
+	return (key[keyNumber] & 0x80) == 0;
+}
+
+bool TriggerKey(const BYTE key[256], uint8_t keyNumber, BYTE prevKey[256])
+{
+	return (key[keyNumber] & 0x80) != 0 && (prevKey[keyNumber] & 0x80) == 0;
+}
+
+bool ReleaseTriggerKey(const BYTE key[256], uint8_t keyNumber, BYTE prevKey[256])
+{
+	return (key[keyNumber] & 0x80) == 0 && (prevKey[keyNumber] & 0x80) != 0;
+}
+
 
 //==================================================
 // クラッシュダンプ出力
@@ -706,6 +735,31 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
     ShowWindow(hwnd, SW_SHOW);
 
+    //==================================================
+	//DirectInputの初期化
+	//==================================================
+
+	IDirectInput8* directInput = nullptr;
+    HRESULT hr = DirectInput8Create(
+        wc.hInstance,
+        DIRECTINPUT_VERSION,
+        IID_IDirectInput8,
+        (void**)&directInput, nullptr);
+	assert(SUCCEEDED(hr));
+
+	//キーボードデバイスの作成
+	IDirectInputDevice8* keyboard = nullptr;
+	hr = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
+	assert(SUCCEEDED(hr));
+
+	//キーボードデバイスのデータフォーマットを設定
+	hr = keyboard->SetDataFormat(&c_dfDIKeyboard);
+	assert(SUCCEEDED(hr));
+
+	//キーボードデバイスの協調レベルを設定
+    hr = keyboard->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+    assert(SUCCEEDED(hr));
+
     ComPtr<ID3D12Debug1> debugController;
 
 #ifdef _DEBUG
@@ -717,7 +771,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 #endif
 
     ComPtr<IDXGIFactory7> dxgiFactory;
-    HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(dxgiFactory.GetAddressOf()));
+    hr = CreateDXGIFactory1(IID_PPV_ARGS(dxgiFactory.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
     ComPtr<IDXGIAdapter4> useAdapter;
@@ -1240,6 +1294,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 #endif // USE_IMGUI
 
     MSG msg{};
+	BYTE key[256] = {};
+	BYTE prevKey[256] = {};
     bool useMonsterBallTexture = true;
 
     while (msg.message != WM_QUIT) {
@@ -1248,6 +1304,15 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
             DispatchMessageW(&msg);
         }
         else {
+			//==================================================
+			//DirectInputのキーボード情報取得
+			//==================================================
+
+			keyboard->Acquire();
+
+			BYTE key[256] = {};
+            keyboard->GetDeviceState(sizeof(key), key);
+
 #ifdef USE_IMGUI
             ImGui_ImplDX12_NewFrame();
             ImGui_ImplWin32_NewFrame();
@@ -1431,6 +1496,10 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
     ImGui::DestroyContext();
 #endif // USE_IMGUI
     Log(logStream, "Application End");
+
+    keyboard->Unacquire();
+    keyboard->Release();
+    directInput->Release();
 
     CloseHandle(fenceEvent);
 
