@@ -30,6 +30,7 @@
 
 #include "Vector3.h"
 #include "Matrix4x4.h"
+#include "DebugCamera.h"
 
 #ifdef USE_IMGUI
 #include "externals//imgui/imgui.h"
@@ -1276,6 +1277,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
     Transform transformSprite{ {1.0f,1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
     Transform uvTransformSprite{ {1.0f,1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
 
+    DebugCamera debugCamera;
+    debugCamera.Initialize(static_cast<float>(kClientWidth) / kClientHeight);
+
 #ifdef USE_IMGUI
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -1307,6 +1311,11 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			//==================================================
 			//DirectInputのキーボード情報取得
 			//==================================================
+            memcpy(prevKey, key, sizeof(key));
+            keyboard->Acquire();
+            keyboard->GetDeviceState(sizeof(key), key);
+
+            debugCamera.Update(key, prevKey);
 
 			keyboard->Acquire();
 
@@ -1375,14 +1384,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
             transform.Rotate.y += 0.03f;
 
             Matrix4x4 worldMatrix = Matrix4x4::MakeAffineMatrix(transform.Scale, transform.Rotate, transform.Translate);
-            Matrix4x4 cameraMatrix = Matrix4x4::MakeAffineMatrix(cameraTransform.Scale, cameraTransform.Rotate, cameraTransform.Translate);
-            Matrix4x4 viewMatrix = Inverse(cameraMatrix);
-            Matrix4x4 projectionMatrix = Matrix4x4::MakePerspectiveFovMatrix(
-                0.45f,
-                static_cast<float>(kClientWidth) / kClientHeight,
-                0.1f,
-                100.0f
-            );
+            Matrix4x4 viewMatrix = debugCamera.GetViewMatrix();
+            Matrix4x4 projectionMatrix = debugCamera.GetProjectionMatrix();
             Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
             wvpData->WVP = worldViewProjectionMatrix;
             wvpData->World = worldMatrix;
