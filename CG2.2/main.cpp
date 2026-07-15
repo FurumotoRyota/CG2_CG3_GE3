@@ -22,16 +22,12 @@
 // DirectXTex 追加
 #include "externals/DirectXTex/DirectXTex.h"
 
-// XAudio2 関連
-#include <xaudio2.h>
-
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "Dbghelp.lib")
 #pragma comment(lib, "dxcompiler.lib")
 #pragma comment(lib, "DirectXTex.lib")
-#pragma comment(lib, "xaudio2.lib")
 
 #include "Vector3.h"
 #include "Matrix4x4.h"
@@ -104,64 +100,6 @@ struct ModelData
 {
     std::vector<VertexData> vertices;
     MaterialData material;
-};
-
-//==================================================
-// 自動解放ラッパ
-//==================================================
-class ResourceObject
-{
-public:
-    ResourceObject() = default;
-
-    explicit ResourceObject(ID3D12Resource* resource)
-        : resource_(resource)
-    {}
-
-    ~ResourceObject()
-    {
-        if (resource_)
-        {
-            resource_->Release();
-            resource_ = nullptr;
-        }
-    }
-
-    ResourceObject(const ResourceObject&) = delete;
-    ResourceObject& operator=(const ResourceObject&) = delete;
-
-    ResourceObject(ResourceObject&& other) noexcept
-        : resource_(other.resource_)
-    {
-        other.resource_ = nullptr;
-    }
-
-    ResourceObject& operator=(ResourceObject&& other) noexcept
-    {
-        if (this != &other)
-        {
-            if (resource_)
-            {
-                resource_->Release();
-            }
-            resource_ = other.resource_;
-            other.resource_ = nullptr;
-        }
-        return *this;
-    }
-
-    ID3D12Resource* Get() const
-    {
-        return resource_;
-    }
-
-    ID3D12Resource** GetAddressOf()
-    {
-        return &resource_;
-    }
-
-private:
-    ID3D12Resource* resource_ = nullptr;
 };
 
 //==================================================
@@ -403,7 +341,7 @@ ComPtr<IDxcBlob> CompileShader(
 //==================================================
 // バッファリソース作成関数
 //==================================================
-ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
+ComPtr<ID3D12Resource> CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
     D3D12_HEAP_PROPERTIES uploadHeapProperties{};
     uploadHeapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
 
@@ -416,14 +354,14 @@ ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
     bufferResourceDesc.SampleDesc.Count = 1;
     bufferResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
-    ID3D12Resource* bufferResource = nullptr;
+    ComPtr<ID3D12Resource> bufferResource;
     HRESULT hr = device->CreateCommittedResource(
         &uploadHeapProperties,
         D3D12_HEAP_FLAG_NONE,
         &bufferResourceDesc,
         D3D12_RESOURCE_STATE_GENERIC_READ,
         nullptr,
-        IID_PPV_ARGS(&bufferResource)
+        IID_PPV_ARGS(bufferResource.GetAddressOf())
     );
     assert(SUCCEEDED(hr));
 
@@ -494,7 +432,7 @@ DirectX::ScratchImage LoadTexture(const std::string& filepath) {
 //==================================================
 // テクスチャリソース作成関数
 //==================================================
-ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata)
+ComPtr<ID3D12Resource> CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata)
 {
     D3D12_RESOURCE_DESC resourceDesc{};
     resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION(metadata.dimension);
@@ -512,21 +450,21 @@ ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMe
     heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
     heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
 
-    ID3D12Resource* resource = nullptr;
+    ComPtr<ID3D12Resource> resource;
     HRESULT hr = device->CreateCommittedResource(
         &heapProperties,
         D3D12_HEAP_FLAG_NONE,
         &resourceDesc,
         D3D12_RESOURCE_STATE_COPY_DEST,
         nullptr,
-        IID_PPV_ARGS(&resource));
+        IID_PPV_ARGS(resource.GetAddressOf()));
     if (FAILED(hr)) {
-        return nullptr;
+        return {};
     }
     return resource;
 }
 
-ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
+ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
 {
     D3D12_RESOURCE_DESC resourceDesc{};
     resourceDesc.Width = width;
@@ -545,14 +483,14 @@ ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t 
     depthClearValue.DepthStencil.Depth = 1.0f;
     depthClearValue.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
-    ID3D12Resource* resource = nullptr;
+    ComPtr<ID3D12Resource> resource;
     HRESULT hr = device->CreateCommittedResource(
         &heapProperties,
         D3D12_HEAP_FLAG_NONE,
         &resourceDesc,
         D3D12_RESOURCE_STATE_DEPTH_WRITE,
         &depthClearValue,
-        IID_PPV_ARGS(&resource)
+        IID_PPV_ARGS(resource.GetAddressOf())
     );
 
     assert(SUCCEEDED(hr));
@@ -563,18 +501,18 @@ ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t 
 // テクスチャデータアップロード関数
 //==================================================
 [[nodiscard]]
-ID3D12Resource* UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages, ID3D12Device* device,
+ComPtr<ID3D12Resource> UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages, ID3D12Device* device,
     ID3D12GraphicsCommandList* commandList)
 {
     std::vector<D3D12_SUBRESOURCE_DATA> subresources;
     DirectX::PrepareUpload(device, mipImages.GetImages(), mipImages.GetImageCount(), mipImages.GetMetadata(), subresources);
     uint64_t intermediateSize = GetRequiredIntermediateSize(texture, 0, UINT(subresources.size()));
-    ID3D12Resource* intermediateResource = CreateBufferResource(device, intermediateSize);
+    ComPtr<ID3D12Resource> intermediateResource = CreateBufferResource(device, intermediateSize);
 
     UpdateSubresources(
         commandList,
         texture,
-        intermediateResource,
+        intermediateResource.Get(),
         0, 0, UINT(subresources.size()),
         subresources.data()
     );
@@ -711,156 +649,6 @@ ModelData LoadObj(const std::string& directoryPath, const std::string& fileName)
     }
 
     return modelData;
-}
-
-//==================================================
-// 音声データ
-//==================================================
-struct SoundData
-{
-    // 波形フォーマット
-    WAVEFORMATEX wfex;
-    // バッファの先頭アドレス
-    BYTE* pBuffer;
-    // バッファのサイズ
-    unsigned int bufferSize;
-};
-
-// チャンクヘッダ
-struct ChunkHeader
-{
-    char id[4];    // チャンク毎のID
-    int32_t size;  // チャンクサイズ
-};
-
-// RIFFヘッダチャンク
-struct RiffHeader
-{
-    ChunkHeader chunk; // "RIFF"
-    char type[4];       // "WAVE"
-};
-
-// FMTチャンク
-struct FormatChunk
-{
-    ChunkHeader chunk; // "fmt "
-    WAVEFORMATEX fmt;  // 波形フォーマット
-};
-
-//==================================================
-// 音声データの読み込み
-//==================================================
-SoundData SoundLoadWave(const char* filename)
-{
-    //==================================================
-    // ①ファイルオープン
-    //==================================================
-    // ファイル入力ストリームのインスタンス
-    std::ifstream file;
-    // .wavファイルをバイナリモードで開く
-    file.open(filename, std::ios_base::binary);
-    // ファイルオープン失敗を検出する
-    assert(file.is_open());
-
-    //==================================================
-    // ②.wavデータ読み込み
-    //==================================================
-    // RIFFヘッダーの読み込み
-    RiffHeader riff;
-    file.read((char*)&riff, sizeof(riff));
-    // ファイルがRIFFかチェック
-    if (strncmp(riff.chunk.id, "RIFF", 4) != 0) {
-        assert(0);
-    }
-    // タイプがWAVEかチェック
-    if (strncmp(riff.type, "WAVE", 4) != 0) {
-        assert(0);
-    }
-
-    // Formatチャンクの読み込み
-    FormatChunk format = {};
-    // チャンクヘッダーの確認
-    file.read((char*)&format, sizeof(ChunkHeader));
-    if (strncmp(format.chunk.id, "fmt ", 4) != 0) {
-        assert(0);
-    }
-
-    // チャンク本体の読み込み
-    assert(format.chunk.size <= sizeof(format.fmt));
-    file.read((char*)&format.fmt, format.chunk.size);
-
-    // Dataチャンクの読み込み
-    ChunkHeader data;
-    file.read((char*)&data, sizeof(data));
-    // JUNKチャンクを検出した場合
-    if (strncmp(data.id, "JUNK", 4) == 0) {
-        // 読み取り位置をJUNKチャンクの終わりまで進める
-        file.seekg(data.size, std::ios_base::cur);
-        // 再読み込み
-        file.read((char*)&data, sizeof(data));
-    }
-
-    if (strncmp(data.id, "data", 4) != 0) {
-        assert(0);
-    }
-
-    // Dataチャンクのデータ部(波形データ)の読み込み
-    char* pBuffer = new char[data.size];
-    file.read(pBuffer, data.size);
-
-    //==================================================
-    // ③ファイルクローズ
-    //==================================================
-    file.close();
-
-    //==================================================
-    // ④読み込んだ音声データをreturn
-    //==================================================
-    SoundData soundData = {};
-
-    soundData.wfex = format.fmt;
-    soundData.pBuffer = reinterpret_cast<BYTE*>(pBuffer);
-    soundData.bufferSize = data.size;
-
-    return soundData;
-}
-
-//==================================================
-// 音声データの解放
-//==================================================
-void SoundUnload(SoundData* soundData)
-{
-    // バッファのメモリを解放
-    delete[] soundData->pBuffer;
-
-    soundData->pBuffer = 0;
-    soundData->bufferSize = 0;
-    soundData->wfex = {};
-}
-
-//==================================================
-// サウンドの再生
-//==================================================
-void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData)
-{
-    HRESULT result;
-
-    // 波形フォーマットを元にSourceVoiceの生成
-    IXAudio2SourceVoice* pSourceVoice = nullptr;
-    result = xAudio2->CreateSourceVoice(&pSourceVoice, &soundData.wfex);
-    assert(SUCCEEDED(result));
-
-    // 再生する波形データの設定
-    XAUDIO2_BUFFER buf{};
-    buf.pAudioData = soundData.pBuffer;
-    buf.AudioBytes = soundData.bufferSize;
-    buf.Flags = XAUDIO2_END_OF_STREAM;
-
-    // 波形データの再生
-    result = pSourceVoice->SubmitSourceBuffer(&buf);
-    assert(SUCCEEDED(result));
-    result = pSourceVoice->Start();
-    assert(SUCCEEDED(result));
 }
 
 //==================================================
@@ -1078,7 +866,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
     const uint32_t descriptorSizeRTV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     const uint32_t descriptorSizeDSV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 
-    ResourceObject swapChainResources[2];
+    ComPtr<ID3D12Resource> swapChainResources[2];
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[2]{};
 
     for (UINT i = 0; i < 2; ++i) {
@@ -1155,7 +943,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
     descriptionRootSignature.pStaticSamplers = staticSamplers;
     descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 
-    ResourceObject wvpResource(CreateBufferResource(device.Get(), sizeof(TransformationMatrix)));
+    ComPtr<ID3D12Resource> wvpResource = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
     TransformationMatrix* wvpData = nullptr;
     wvpResource.Get()->Map(0, nullptr, reinterpret_cast<void**>(&wvpData));
     wvpData->WVP = Matrix4x4::MakeIdentity4x4();
@@ -1268,11 +1056,11 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
     ModelData modelData = LoadObj("resources", "axis.obj");
 
-    ResourceObject vertexResource(CreateBufferResource(device.Get(), sizeof(VertexData) * modelData.vertices.size()));
-    ResourceObject materialResource(CreateBufferResource(device.Get(), sizeof(Material)));
-    ResourceObject vertexResourceSprite(CreateBufferResource(device.Get(), sizeof(VertexData) * 6));
-    ResourceObject transformationMatrixResourceSprite(CreateBufferResource(device.Get(), sizeof(TransformationMatrix)));
-    ResourceObject indexResourceSprite(CreateBufferResource(device.Get(), sizeof(uint32_t) * 6));
+    ComPtr<ID3D12Resource> vertexResource = CreateBufferResource(device.Get(), sizeof(VertexData) * modelData.vertices.size());
+    ComPtr<ID3D12Resource> materialResource = CreateBufferResource(device.Get(), sizeof(Material));
+    ComPtr<ID3D12Resource> vertexResourceSprite = CreateBufferResource(device.Get(), sizeof(VertexData) * 6);
+    ComPtr<ID3D12Resource> transformationMatrixResourceSprite = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
+    ComPtr<ID3D12Resource> indexResourceSprite = CreateBufferResource(device.Get(), sizeof(uint32_t) * 6);
 
     TransformationMatrix* transformationMatrixDataSprite = nullptr;
     transformationMatrixResourceSprite.Get()->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
@@ -1285,14 +1073,14 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
     materialData->enableLighting = true;
     materialData->uvTransform = Matrix4x4::MakeIdentity4x4();
 
-    ResourceObject materialResourceSprite(CreateBufferResource(device.Get(), sizeof(Material)));
+    ComPtr<ID3D12Resource> materialResourceSprite = CreateBufferResource(device.Get(), sizeof(Material));
     Material* materialDataSprite = nullptr;
     materialResourceSprite.Get()->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite));
     materialDataSprite->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
     materialDataSprite->enableLighting = false;
     materialDataSprite->uvTransform = Matrix4x4::MakeIdentity4x4();
 
-    ResourceObject directionalLightResource(CreateBufferResource(device.Get(), sizeof(DirectionalLight)));
+    ComPtr<ID3D12Resource> directionalLightResource = CreateBufferResource(device.Get(), sizeof(DirectionalLight));
     DirectionalLight* directionalLightData = nullptr;
     directionalLightResource.Get()->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
     directionalLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -1301,13 +1089,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
     DirectX::ScratchImage mipImages = LoadTexture("resources/uvChecker.png");
     const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-    ResourceObject textureResource(CreateTextureResource(device.Get(), metadata));
-    ResourceObject depthStencilResource(CreateDepthStencilTextureResource(device.Get(), kClientWidth, kClientHeight));
+    ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device.Get(), metadata);
+    ComPtr<ID3D12Resource> depthStencilResource = CreateDepthStencilTextureResource(device.Get(), kClientWidth, kClientHeight);
 
     DirectX::ScratchImage mipImages2 = LoadTexture(modelData.material.textureFilePath);
     const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
-    ResourceObject textureResource2(CreateTextureResource(device.Get(), metadata2));
-    ResourceObject intermediateResource2(UploadTextureData(textureResource2.Get(), mipImages2, device.Get(), commandList.Get()));
+    ComPtr<ID3D12Resource> textureResource2 = CreateTextureResource(device.Get(), metadata2);
+    ComPtr<ID3D12Resource> intermediateResource2 = UploadTextureData(textureResource2.Get(), mipImages2, device.Get(), commandList.Get());
 
     D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle =
         GetCPUDescriptorHandle(dsvDescriptorHeap.Get(), descriptorSizeDSV, 0);
@@ -1317,9 +1105,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
     dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
     device->CreateDepthStencilView(depthStencilResource.Get(), &dsvDesc, dsvHandle);
 
-    ResourceObject intermediateResource(
-        UploadTextureData(textureResource.Get(), mipImages, device.Get(), commandList.Get())
-    );
+    ComPtr<ID3D12Resource> intermediateResource =
+        UploadTextureData(textureResource.Get(), mipImages, device.Get(), commandList.Get());
 
     hr = commandList->Close();
     assert(SUCCEEDED(hr));
@@ -1429,27 +1216,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
     hr = commandList->Close();
     assert(SUCCEEDED(hr));
-
-    //==================================================
-    // XAudio2初期化処理
-    //==================================================
-    HRESULT result;
-
-    // XAudioエンジンのインスタンスを生成
-    Microsoft::WRL::ComPtr<IXAudio2> xAudio2;
-    result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
-    assert(SUCCEEDED(result));
-
-    // マスターボイスを生成
-    IXAudio2MasteringVoice* masterVoice = nullptr;
-    result = xAudio2->CreateMasteringVoice(&masterVoice);
-    assert(SUCCEEDED(result));
-
-    // 音声データの読み込み
-    SoundData soundData1 = SoundLoadWave("Resources/sound1.wav");
-
-    // 音声再生(最初に一度だけ再生)
-    SoundPlayWave(xAudio2.Get(), soundData1);
 
     Transform transform{ {1.0f,1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
     Transform cameraTransform{ {1.0f,1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -5.0f} };
@@ -1664,15 +1430,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
 #endif // USE_IMGUI
-
-    //==================================================
-    // XAudio2後始末
-    //==================================================
-    // XAudio2解放(再生中の音声データを解放する前に必ず呼び出す)
-    xAudio2.Reset();
-    // 音声データ解放
-    SoundUnload(&soundData1);
-
     Log(logStream, "Application End");
 
     CloseHandle(fenceEvent);
