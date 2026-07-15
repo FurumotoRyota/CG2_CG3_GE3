@@ -94,6 +94,7 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="DebugCamera.h" />
     <ClInclude Include="externals\DirectXTex\DirectXTex.h" />
     <ClInclude Include="externals\imgui\imconfig.h" />
     <ClInclude Include="externals\imgui\imgui.h" />
@@ -121,6 +122,7 @@
     <None Include="Object3d.hlsli" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="DebugCamera.cpp" />
     <ClCompile Include="externals\imgui\imgui.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
