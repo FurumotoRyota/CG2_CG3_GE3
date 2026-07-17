@@ -1308,10 +1308,19 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			//DirectInputのキーボード情報取得
 			//==================================================
 
+            std::memcpy(prevKey, key, sizeof(key));
 			keyboard->Acquire();
 
-			BYTE key[256] = {};
             keyboard->GetDeviceState(sizeof(key), key);
+
+            if (TriggerKey(key, DIK_SPACE, prevKey)) {
+                useMonsterBallTexture = !useMonsterBallTexture;
+                Log(logStream, std::format("Use Monster Ball Texture: {}", useMonsterBallTexture));
+            }
+
+            if (ReleaseTriggerKey(key, DIK_SPACE, prevKey)) {
+                Log(logStream, "Space key released");
+            }
 
 #ifdef USE_IMGUI
             ImGui_ImplDX12_NewFrame();
