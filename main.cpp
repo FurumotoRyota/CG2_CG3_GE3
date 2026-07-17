@@ -1318,8 +1318,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
             debugCamera.Update(key, prevKey);
 
 			keyboard->Acquire();
-
-			BYTE key[256] = {};
             keyboard->GetDeviceState(sizeof(key), key);
 
 #ifdef USE_IMGUI
