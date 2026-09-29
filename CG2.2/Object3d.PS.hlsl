@@ -3,7 +3,7 @@
 struct Material
 {
     float4 color;
-    int enableLighting;
+    int lightingMode; // 0:なし 1:Lambert 2:HalfLambert
     float3 padding;
     float4x4 uvTransform;
 };
@@ -32,7 +32,15 @@ PixelShaderOutput main(VertexShaderOutput input)
     float4 transformedUV = mul(float4(input.texcoord, 0.0f, 1.0f), gMaterial.uvTransform);
     float4 textureColor = gTexture.Sample(gSampler, transformedUV.xy);
     
-    if (gMaterial.enableLighting != 0)
+    if (gMaterial.lightingMode == 1)
+    {
+        // Lambertian Reflectance（通常のランバート反射）
+        float NdotL = dot(normalize(input.normal), -gDirectionalLight.direction);
+        float cos = saturate(NdotL);
+
+        output.color = gMaterial.color * textureColor * gDirectionalLight.color * cos * gDirectionalLight.intensity;
+    }
+    else if (gMaterial.lightingMode == 2)
     {
         // 1. 法線とライトの逆方向の内積を計算（範囲: -1.0 ～ 1.0）
         float NdotL = dot(normalize(input.normal), -gDirectionalLight.direction);
