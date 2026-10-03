@@ -1,13 +1,13 @@
 #include "Game.h"
 #include "../scene/TitleScene.h"
 #include "../scene/GameScene.h"
-#include "../editor/EditorLayout.h"
+#include "editor/EditorLayout.h"
 
 #include <format>
 #include <string>
 
 #ifdef USE_IMGUI
-#include "../externals/imgui/imgui.h"
+#include "imgui/imgui.h"
 #endif // USE_IMGUI
 
 void Game::Initialize()

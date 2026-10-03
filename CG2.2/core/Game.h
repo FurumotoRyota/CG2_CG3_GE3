@@ -1,5 +1,5 @@
 #pragma once
-#include "Framework.h"
+#include "core/Framework.h"
 
 /// <summary>
 /// このゲーム固有の設定（BGM・最初のシーン・システム用ImGui）

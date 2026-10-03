@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "../externals/DirectXTex/DirectXTex.h"
+#include "DirectXTex/DirectXTex.h"
 #include "WinApp.h"
 
 /// <summary>

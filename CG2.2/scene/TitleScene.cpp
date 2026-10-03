@@ -1,15 +1,16 @@
 #include "TitleScene.h"
 #include "GameScene.h"
-#include "SceneManager.h"
-#include "../input/Input.h"
-#include "../editor/EditorLayout.h"
+#include "scene/SceneManager.h"
+#include "input/Input.h"
+#include "editor/EditorLayout.h"
 
 #ifdef USE_IMGUI
-#include "../externals/imgui/imgui.h"
+#include "imgui/imgui.h"
 #endif // USE_IMGUI
 
 void TitleScene::Initialize()
-{}
+{
+}
 
 void TitleScene::Update()
 {

@@ -1,7 +1,7 @@
 #include "DirectXCommon.h"
 #include "Logger.h"
 #include "StringUtility.h"
-#include "../externals/DirectXTex/d3dx12.h"
+#include "DirectXTex/d3dx12.h"
 
 #include <cassert>
 #include <format>

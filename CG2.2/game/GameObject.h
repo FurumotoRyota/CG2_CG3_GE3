@@ -1,8 +1,8 @@
 #pragma once
 #include <string>
 
-#include "../3d/Object3d.h"
-#include "../math/Vector3.h"
+#include "3d/Object3d.h"
+#include "math/Vector3.h"
 
 class Object3dCommon;
 

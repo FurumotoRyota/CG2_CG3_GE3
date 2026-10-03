@@ -4,7 +4,7 @@
 #include <algorithm>
 
 #include "../base/WinApp.h"
-#include "../externals/imgui/imgui.h"
+#include "imgui/imgui.h"
 
 namespace
 {

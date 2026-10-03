@@ -53,6 +53,7 @@
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <TreatWarningAsError>true</TreatWarningAsError>
+      <AdditionalIncludeDirectories>$(SolutionDir)CG2.2\Engine;$(SolutionDir)CG2.2\externals;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -79,6 +80,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>$(SolutionDir)CG2.2\Engine;$(SolutionDir)CG2.2\externals;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -94,148 +96,26 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="2d\Sprite.h" />
-    <ClInclude Include="2d\SpriteCommon.h" />
-    <ClInclude Include="3d\InstancedPlanes.h" />
-    <ClInclude Include="3d\Model.h" />
-    <ClInclude Include="3d\ModelData.h" />
-    <ClInclude Include="3d\ModelLoader.h" />
-    <ClInclude Include="3d\ModelManager.h" />
-    <ClInclude Include="3d\Object3d.h" />
-    <ClInclude Include="3d\Object3dCommon.h" />
-    <ClInclude Include="3d\VertexData.h" />
-    <ClInclude Include="audio\Audio.h" />
-    <ClInclude Include="base\BasicPipeline.h" />
-    <ClInclude Include="base\BlendMode.h" />
-    <ClInclude Include="base\CrashHandler.h" />
-    <ClInclude Include="base\DirectXCommon.h" />
-    <ClInclude Include="base\ImGuiManager.h" />
-    <ClInclude Include="base\Logger.h" />
-    <ClInclude Include="base\ShaderTypes.h" />
-    <ClInclude Include="base\SrvManager.h" />
-    <ClInclude Include="base\StringUtility.h" />
-    <ClInclude Include="base\TextureManager.h" />
-    <ClInclude Include="base\WinApp.h" />
-    <ClInclude Include="camera\Camera.h" />
-    <ClInclude Include="camera\DebugCamera.h" />
-    <ClInclude Include="core\Framework.h" />
     <ClInclude Include="core\Game.h" />
-    <ClInclude Include="editor\EditorLayout.h" />
-    <ClInclude Include="editor\ViewportPicking.h" />
-    <ClInclude Include="externals\imgui\imconfig.h" />
-    <ClInclude Include="externals\imgui\imgui.h" />
-    <ClInclude Include="externals\imgui\imgui_impl_dx12.h" />
-    <ClInclude Include="externals\imgui\imgui_impl_win32.h" />
-    <ClInclude Include="externals\imgui\imgui_internal.h" />
-    <ClInclude Include="externals\imgui\imstb_rectpack.h" />
-    <ClInclude Include="externals\imgui\imstb_textedit.h" />
-    <ClInclude Include="externals\imgui\imstb_truetype.h" />
     <ClInclude Include="game\GameObject.h" />
     <ClInclude Include="game\SpinningObject.h" />
-    <ClInclude Include="input\Input.h" />
-    <ClInclude Include="input\KonamiCommand.h" />
-    <ClInclude Include="math\Color.h" />
-    <ClInclude Include="math\Matrix4x4.h" />
-    <ClInclude Include="math\Transform.h" />
-    <ClInclude Include="math\Vector2.h" />
-    <ClInclude Include="math\Vector3.h" />
-    <ClInclude Include="math\Vector4.h" />
-    <ClInclude Include="particle\ParticleEmitter.h" />
-    <ClInclude Include="particle\ParticleSystem.h" />
     <ClInclude Include="scene\GameScene.h" />
-    <ClInclude Include="scene\Scene.h" />
-    <ClInclude Include="scene\SceneContext.h" />
-    <ClInclude Include="scene\SceneManager.h" />
     <ClInclude Include="scene\TitleScene.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="2d\Sprite.cpp" />
-    <ClCompile Include="2d\SpriteCommon.cpp" />
-    <ClCompile Include="3d\InstancedPlanes.cpp" />
-    <ClCompile Include="3d\Model.cpp" />
-    <ClCompile Include="3d\ModelLoader.cpp" />
-    <ClCompile Include="3d\ModelManager.cpp" />
-    <ClCompile Include="3d\Object3d.cpp" />
-    <ClCompile Include="3d\Object3dCommon.cpp" />
-    <ClCompile Include="audio\Audio.cpp" />
-    <ClCompile Include="base\BasicPipeline.cpp" />
-    <ClCompile Include="base\CrashHandler.cpp" />
-    <ClCompile Include="base\DirectXCommon.cpp" />
-    <ClCompile Include="base\ImGuiManager.cpp" />
-    <ClCompile Include="base\Logger.cpp" />
-    <ClCompile Include="base\SrvManager.cpp" />
-    <ClCompile Include="base\StringUtility.cpp" />
-    <ClCompile Include="base\TextureManager.cpp" />
-    <ClCompile Include="base\WinApp.cpp" />
-    <ClCompile Include="camera\Camera.cpp" />
-    <ClCompile Include="camera\DebugCamera.cpp" />
-    <ClCompile Include="core\Framework.cpp" />
     <ClCompile Include="core\Game.cpp" />
-    <ClCompile Include="editor\EditorLayout.cpp" />
-    <ClCompile Include="editor\ViewportPicking.cpp" />
-    <ClCompile Include="externals\imgui\imgui.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="externals\imgui\imgui_demo.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="externals\imgui\imgui_draw.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="externals\imgui\imgui_impl_dx12.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="externals\imgui\imgui_impl_win32.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="externals\imgui\imgui_tables.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="externals\imgui\imgui_widgets.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
     <ClCompile Include="game\GameObject.cpp" />
-    <ClCompile Include="input\Input.cpp" />
-    <ClCompile Include="input\KonamiCommand.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="particle\ParticleEmitter.cpp" />
-    <ClCompile Include="particle\ParticleSystem.cpp" />
     <ClCompile Include="scene\GameScene.cpp" />
-    <ClCompile Include="scene\SceneManager.cpp" />
     <ClCompile Include="scene\TitleScene.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <Text Include="externals\imgui\LICENSE.txt" />
-  </ItemGroup>
-  <ItemGroup>
+    <ProjectReference Include="Engine\EngineLib.vcxproj">
+      <Project>{a3093ff8-d93d-4553-81a7-b975d03f6133}</Project>
+    </ProjectReference>
     <ProjectReference Include="externals\DirectXTex\DirectXTex_Desktop_2022_Win10.vcxproj">
       <Project>{371b9fa9-4c90-4ac6-a123-aced756d6c77}</Project>
     </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <FxCompile Include="Engine\Shaders\InstancedPlane.PS.hlsl">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </FxCompile>
-    <FxCompile Include="Engine\Shaders\InstancedPlane.VS.hlsl">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </FxCompile>
-    <FxCompile Include="Engine\Shaders\Object3d.PS.hlsl">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </FxCompile>
-    <FxCompile Include="Engine\Shaders\Object3d.VS.hlsl">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </FxCompile>
-    <FxCompile Include="Engine\Shaders\Particle.PS.hlsl">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </FxCompile>
-    <FxCompile Include="Engine\Shaders\Particle.VS.hlsl">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </FxCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Engine\Shaders\Object3d.hlsli">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
-    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

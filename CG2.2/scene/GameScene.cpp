@@ -1,20 +1,20 @@
 #include "GameScene.h"
 #include "TitleScene.h"
-#include "SceneManager.h"
+#include "scene/SceneManager.h"
 
-#include "../base/Logger.h"
-#include "../base/WinApp.h"
-#include "../2d/SpriteCommon.h"
-#include "../3d/ModelLoader.h"
-#include "../3d/Object3dCommon.h"
-#include "../3d/InstancedPlanes.h"
-#include "../camera/DebugCamera.h"
-#include "../editor/EditorLayout.h"
-#include "../editor/ViewportPicking.h"
-#include "../3d/Model.h"
-#include "../input/Input.h"
-#include "../math/Color.h"
-#include "../particle/ParticleSystem.h"
+#include "base/Logger.h"
+#include "base/WinApp.h"
+#include "2d/SpriteCommon.h"
+#include "3d/ModelLoader.h"
+#include "3d/Object3dCommon.h"
+#include "3d/InstancedPlanes.h"
+#include "camera/DebugCamera.h"
+#include "editor/EditorLayout.h"
+#include "editor/ViewportPicking.h"
+#include "3d/Model.h"
+#include "input/Input.h"
+#include "math/Color.h"
+#include "particle/ParticleSystem.h"
 
 #include <algorithm>
 #include <cctype>
@@ -24,7 +24,7 @@
 #include <limits>
 
 #ifdef USE_IMGUI
-#include "../externals/imgui/imgui.h"
+#include "imgui/imgui.h"
 #endif // USE_IMGUI
 
 namespace

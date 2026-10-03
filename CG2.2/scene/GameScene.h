@@ -4,17 +4,17 @@
 #include <string>
 #include <vector>
 
-#include "Scene.h"
-#include "../2d/Sprite.h"
-#include "../3d/InstancedPlanes.h"
+#include "scene/Scene.h"
+#include "2d/Sprite.h"
+#include "3d/InstancedPlanes.h"
 #include "../game/GameObject.h"
-#include "../camera/Camera.h"
-#include "../camera/DebugCamera.h"
-#include "../input/KonamiCommand.h"
-#include "../math/Transform.h"
-#include "../math/Vector2.h"
-#include "../particle/ParticleEmitter.h"
-#include "../math/Vector4.h"
+#include "camera/Camera.h"
+#include "camera/DebugCamera.h"
+#include "input/KonamiCommand.h"
+#include "math/Transform.h"
+#include "math/Vector2.h"
+#include "particle/ParticleEmitter.h"
+#include "math/Vector4.h"
 
 struct DirectionalLight;
 
