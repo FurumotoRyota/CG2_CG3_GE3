@@ -119,8 +119,8 @@ void InstancedPlaneCommon::Initialize(DirectXCommon* dxCommon, TextureManager* t
     depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
 
-    ComPtr<IDxcBlob> vsBlob = dxCommon_->CompileShader(L"InstancedPlane.VS.hlsl", L"vs_6_0");
-    ComPtr<IDxcBlob> psBlob = dxCommon_->CompileShader(L"InstancedPlane.PS.hlsl", L"ps_6_0");
+    ComPtr<IDxcBlob> vsBlob = dxCommon_->CompileShader(L"Engine/Shaders/InstancedPlane.VS.hlsl", L"vs_6_0");
+    ComPtr<IDxcBlob> psBlob = dxCommon_->CompileShader(L"Engine/Shaders/InstancedPlane.PS.hlsl", L"ps_6_0");
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
     psoDesc.pRootSignature = rootSignature_.Get();

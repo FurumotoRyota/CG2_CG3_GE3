@@ -215,17 +215,6 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="Object3d.VS.hlsl" />
-    <FxCompile Include="Object3d.PS.hlsl" />
-    <FxCompile Include="Particle.PS.hlsl" />
-    <FxCompile Include="Particle.VS.hlsl" />
-    <FxCompile Include="InstancedPlane.PS.hlsl" />
-    <FxCompile Include="InstancedPlane.VS.hlsl" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Object3d.hlsli" />
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
@@ -351,5 +340,16 @@
     <Text Include="externals\imgui\LICENSE.txt">
       <Filter>imgui</Filter>
     </Text>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Engine\Shaders\InstancedPlane.PS.hlsl" />
+    <FxCompile Include="Engine\Shaders\InstancedPlane.VS.hlsl" />
+    <FxCompile Include="Engine\Shaders\Object3d.PS.hlsl" />
+    <FxCompile Include="Engine\Shaders\Object3d.VS.hlsl" />
+    <FxCompile Include="Engine\Shaders\Particle.PS.hlsl" />
+    <FxCompile Include="Engine\Shaders\Particle.VS.hlsl" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Engine\Shaders\Object3d.hlsli" />
   </ItemGroup>
 </Project>

@@ -106,8 +106,8 @@ void ParticleSystem::CreatePipeline()
     rasterizerDesc.CullMode = D3D12_CULL_MODE_NONE; // ビルボードなのでカリング無し
     rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
-    ComPtr<IDxcBlob> vsBlob = dxCommon_->CompileShader(L"Particle.VS.hlsl", L"vs_6_0");
-    ComPtr<IDxcBlob> psBlob = dxCommon_->CompileShader(L"Particle.PS.hlsl", L"ps_6_0");
+    ComPtr<IDxcBlob> vsBlob = dxCommon_->CompileShader(L"Engine/Shaders/Particle.VS.hlsl", L"vs_6_0");
+    ComPtr<IDxcBlob> psBlob = dxCommon_->CompileShader(L"Engine/Shaders/Particle.PS.hlsl", L"ps_6_0");
 
     D3D12_DEPTH_STENCIL_DESC depthStencilDesc{};
     depthStencilDesc.DepthEnable = true;

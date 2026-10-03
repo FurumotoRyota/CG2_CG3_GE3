@@ -4,4 +4,5 @@
   </Configurations>
   <Project Path="CG2.2/CG2.2.vcxproj" Id="a1028732-d9c4-4ab6-8a27-03cea3e5ca85" />
   <Project Path="CG2.2/externals/DirectXTex/DirectXTex_Desktop_2022_Win10.vcxproj" Id="371b9fa9-4c90-4ac6-a123-aced756d6c77" />
+  <Project Path="EngineLib/EngineLib.vcxproj" Id="a3093ff8-d93d-4553-81a7-b975d03f6133" />
 </Solution>

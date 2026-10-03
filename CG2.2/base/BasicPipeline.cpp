@@ -98,8 +98,8 @@ void BasicPipeline::Initialize(DirectXCommon* dxCommon, bool useDepth)
     rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
     rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
-    Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = dxCommon->CompileShader(L"Object3D.VS.hlsl", L"vs_6_0");
-    Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = dxCommon->CompileShader(L"Object3D.PS.hlsl", L"ps_6_0");
+    Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = dxCommon->CompileShader(L"Engine/Shaders/Object3D.VS.hlsl", L"vs_6_0");
+    Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = dxCommon->CompileShader(L"Engine/Shaders/Object3D.PS.hlsl", L"ps_6_0");
 
     // ブレンドモードごとにPSOを作る
     // 前半 kBlendModeCount 個は裏面カリングあり、後半は両面描画（カリングなし）
