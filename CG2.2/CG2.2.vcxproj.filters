@@ -189,9 +189,6 @@
     <ClInclude Include="scene\SceneManager.h">
       <Filter>scene</Filter>
     </ClInclude>
-    <ClInclude Include="scene\TitleScene.h">
-      <Filter>scene</Filter>
-    </ClInclude>
     <ClInclude Include="game\GameObject.h">
       <Filter>game</Filter>
     </ClInclude>
@@ -207,12 +204,23 @@
     <ClInclude Include="base\BlendMode.h">
       <Filter>base</Filter>
     </ClInclude>
+    <ClInclude Include="particle\ParticleEmitter.h">
+      <Filter>particle</Filter>
+    </ClInclude>
+    <ClInclude Include="scene\TitleScene.h">
+      <Filter>scene</Filter>
+    </ClInclude>
+    <ClInclude Include="3d\InstancedPlanes.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Object3d.VS.hlsl" />
     <FxCompile Include="Object3d.PS.hlsl" />
     <FxCompile Include="Particle.PS.hlsl" />
     <FxCompile Include="Particle.VS.hlsl" />
+    <FxCompile Include="InstancedPlane.PS.hlsl" />
+    <FxCompile Include="InstancedPlane.VS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Object3d.hlsli" />
@@ -331,6 +339,12 @@
     </ClCompile>
     <ClCompile Include="editor\ViewportPicking.cpp">
       <Filter>editor</Filter>
+    </ClCompile>
+    <ClCompile Include="particle\ParticleEmitter.cpp">
+      <Filter>particle</Filter>
+    </ClCompile>
+    <ClCompile Include="3d\InstancedPlanes.cpp">
+      <Filter>ソース ファイル</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

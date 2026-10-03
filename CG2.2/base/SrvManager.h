@@ -2,6 +2,7 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <cstdint>
+#include <vector>
 
 class DirectXCommon;
 
@@ -19,6 +20,9 @@ public:
     // 空きスロットの番号を1つ払い出す
     uint32_t Allocate();
 
+    // 使い終わったスロットを返す（次のAllocateで再利用される）。GPUが使い終わってから呼ぶこと
+    void Free(uint32_t index);
+
     D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(uint32_t index) const;
     D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(uint32_t index) const;
 
@@ -28,4 +32,5 @@ public:
 private:
     DirectXCommon* dxCommon_ = nullptr;
     uint32_t nextIndex_ = kReservedCount;
+    std::vector<uint32_t> freeList_;
 };

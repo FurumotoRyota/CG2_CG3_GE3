@@ -96,6 +96,7 @@
   <ItemGroup>
     <ClInclude Include="2d\Sprite.h" />
     <ClInclude Include="2d\SpriteCommon.h" />
+    <ClInclude Include="3d\InstancedPlanes.h" />
     <ClInclude Include="3d\Model.h" />
     <ClInclude Include="3d\ModelData.h" />
     <ClInclude Include="3d\ModelLoader.h" />
@@ -139,6 +140,7 @@
     <ClInclude Include="math\Vector2.h" />
     <ClInclude Include="math\Vector3.h" />
     <ClInclude Include="math\Vector4.h" />
+    <ClInclude Include="particle\ParticleEmitter.h" />
     <ClInclude Include="particle\ParticleSystem.h" />
     <ClInclude Include="scene\GameScene.h" />
     <ClInclude Include="scene\Scene.h" />
@@ -147,6 +149,12 @@
     <ClInclude Include="scene\TitleScene.h" />
   </ItemGroup>
   <ItemGroup>
+    <FxCompile Include="InstancedPlane.PS.hlsl">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </FxCompile>
+    <FxCompile Include="InstancedPlane.VS.hlsl">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </FxCompile>
     <FxCompile Include="Object3d.PS.hlsl">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </FxCompile>
@@ -166,6 +174,7 @@
   <ItemGroup>
     <ClCompile Include="2d\Sprite.cpp" />
     <ClCompile Include="2d\SpriteCommon.cpp" />
+    <ClCompile Include="3d\InstancedPlanes.cpp" />
     <ClCompile Include="3d\Model.cpp" />
     <ClCompile Include="3d\ModelLoader.cpp" />
     <ClCompile Include="3d\ModelManager.cpp" />
@@ -212,6 +221,7 @@
     <ClCompile Include="input\Input.cpp" />
     <ClCompile Include="input\KonamiCommand.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="particle\ParticleEmitter.cpp" />
     <ClCompile Include="particle\ParticleSystem.cpp" />
     <ClCompile Include="scene\GameScene.cpp" />
     <ClCompile Include="scene\SceneManager.cpp" />

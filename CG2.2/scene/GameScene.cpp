@@ -7,6 +7,7 @@
 #include "../2d/SpriteCommon.h"
 #include "../3d/ModelLoader.h"
 #include "../3d/Object3dCommon.h"
+#include "../3d/InstancedPlanes.h"
 #include "../camera/DebugCamera.h"
 #include "../editor/EditorLayout.h"
 #include "../editor/ViewportPicking.h"
@@ -58,6 +59,8 @@ void GameScene::Initialize()
 
     objects_.clear();
     sprites_.clear();
+    emitters_.clear();
+    planes_.clear();
     pendingCommands_.clear();
 
     // 最初は何も置かない（Hierarchyの右クリック / [+ Add] から追加する）
@@ -69,6 +72,7 @@ void GameScene::Initialize()
     konamiTime_ = 0.0f;
     selection_ = {};
     dragMode_ = DragMode::None;
+    playing_ = false;
 
     ctx_->particleSystem->Clear();
 }
@@ -78,6 +82,8 @@ void GameScene::Finalize()
     pendingCommands_.clear();
     objects_.clear();
     sprites_.clear();
+    emitters_.clear();
+    planes_.clear();
     debugCamera_ = nullptr;
     camera_.reset();
     ctx_->particleSystem->Clear();
@@ -218,6 +224,153 @@ void GameScene::DuplicateSprite(int index)
     selection_ = { SelectKind::Sprite, newIndex };
 }
 
+int GameScene::AddPlanes(int texIndex, const Vector3& position)
+{
+    PlanesSlot slot;
+    slot.planes = std::make_unique<InstancedPlanes>();
+    slot.planes->Initialize(ctx_->instancedPlaneCommon, textureFileList_[texIndex]);
+    slot.planes->GetSettings().base.Translate = position;
+    slot.texIndex = texIndex;
+    slot.loadedTexIndex = texIndex;
+    planes_.push_back(std::move(slot));
+    return static_cast<int>(planes_.size()) - 1;
+}
+
+void GameScene::DuplicatePlanes(int index)
+{
+    if (index < 0 || index >= static_cast<int>(planes_.size())) {
+        return;
+    }
+    const int srcTex = planes_[index].texIndex;
+    const InstancedPlanes::Settings settings = planes_[index].planes->GetSettings(); // push_backで無効になる前にコピー
+
+    const int newIndex = AddPlanes(srcTex, settings.base.Translate);
+    planes_[newIndex].planes->GetSettings() = settings;
+    planes_[newIndex].planes->GetSettings().base.Translate.y += 3.0f; // 重ならないように少しずらす
+
+    selection_ = { SelectKind::Planes, newIndex };
+}
+
+int GameScene::AddEmitter(ParticlePreset preset, const Vector3& position)
+{
+    ParticleEmitter emitter;
+    emitter.ApplyPreset(preset);
+    emitter.position = position;
+    emitters_.push_back(emitter);
+    return static_cast<int>(emitters_.size()) - 1;
+}
+
+void GameScene::DuplicateEmitter(int index)
+{
+    if (index < 0 || index >= static_cast<int>(emitters_.size())) {
+        return;
+    }
+    ParticleEmitter copy = emitters_[index];
+    copy.position.x += 1.0f; // 重ならないように少しずらす
+    copy.emitAccumulator = 0.0f;
+    copy.burstTimer = 0.0f;
+    copy.playRequested = false;
+    emitters_.push_back(copy);
+    selection_ = { SelectKind::Emitter, static_cast<int>(emitters_.size()) - 1 };
+}
+
+// 選択中の項目を削除する（編集モードのみ）
+void GameScene::DeleteSelection()
+{
+    if (playing_) {
+        return;
+    }
+    const int index = selection_.index;
+    if (selection_.kind == SelectKind::Object && index < static_cast<int>(objects_.size())) {
+        objects_.erase(objects_.begin() + index);
+    }
+    else if (selection_.kind == SelectKind::Sprite && index < static_cast<int>(sprites_.size())) {
+        sprites_.erase(sprites_.begin() + index);
+    }
+    else if (selection_.kind == SelectKind::Planes && index < static_cast<int>(planes_.size())) {
+        planes_.erase(planes_.begin() + index);
+    }
+    else if (selection_.kind == SelectKind::Emitter && index < static_cast<int>(emitters_.size())) {
+        emitters_.erase(emitters_.begin() + index);
+    }
+    else {
+        return;
+    }
+    selection_ = {};
+    dragMode_ = DragMode::None;
+}
+
+// 実行開始：Play前の状態を保存する。実行中に動いた位置・色などはStopで元に戻る
+// （実行中は追加・複製・削除ができないので、項目の数と並びは変わらない）
+void GameScene::StartPlay()
+{
+    if (playing_) {
+        return;
+    }
+
+    snapshot_ = {};
+    for (auto& slot : objects_) {
+        Object3d& object = slot.object->GetObject3d();
+        snapshot_.objects.push_back({ object.GetTransform(), object.GetUvTransform(), object.GetMaterial()->color });
+    }
+    for (auto& slot : sprites_) {
+        Sprite& sprite = *slot.sprite;
+        snapshot_.sprites.push_back({ sprite.GetTransform(), sprite.GetUvTransform(), sprite.GetMaterial()->color });
+    }
+
+    // エミッターは発生状態をリセットしてから保存する
+    for (auto& emitter : emitters_) {
+        emitter.emitAccumulator = 0.0f;
+        emitter.burstTimer = 0.0f;
+        emitter.playRequested = false;
+    }
+    for (auto& slot : planes_) {
+        snapshot_.planes.push_back(slot.planes->GetSettings());
+    }
+    snapshot_.emitters = emitters_;
+
+    ctx_->particleSystem->Clear(); // 編集中のプレビューの粒は消す
+    konamiCommand_ = KonamiCommand{};
+    konamiPartyMode_ = false;
+    konamiTime_ = 0.0f;
+    dragMode_ = DragMode::None;
+    playing_ = true;
+}
+
+// 実行停止：保存しておいた状態に戻す
+void GameScene::StopPlay()
+{
+    if (!playing_) {
+        return;
+    }
+    playing_ = false;
+    konamiPartyMode_ = false;
+    konamiTime_ = 0.0f;
+    dragMode_ = DragMode::None;
+
+    for (size_t i = 0; i < objects_.size() && i < snapshot_.objects.size(); ++i) {
+        Object3d& object = objects_[i].object->GetObject3d();
+        object.GetTransform() = snapshot_.objects[i].transform;
+        object.GetUvTransform() = snapshot_.objects[i].uvTransform;
+        object.GetMaterial()->color = snapshot_.objects[i].color;
+        objects_[i].konamiOriginalColor = snapshot_.objects[i].color;
+    }
+    for (size_t i = 0; i < sprites_.size() && i < snapshot_.sprites.size(); ++i) {
+        Sprite& sprite = *sprites_[i].sprite;
+        sprite.GetTransform() = snapshot_.sprites[i].transform;
+        sprite.GetUvTransform() = snapshot_.sprites[i].uvTransform;
+        sprite.GetMaterial()->color = snapshot_.sprites[i].color;
+    }
+    for (size_t i = 0; i < planes_.size() && i < snapshot_.planes.size(); ++i) {
+        planes_[i].planes->GetSettings() = snapshot_.planes[i];
+    }
+    if (emitters_.size() == snapshot_.emitters.size()) {
+        emitters_ = snapshot_.emitters;
+    }
+
+    ctx_->particleSystem->Clear(); // 実行中の粒を消す
+}
+
 void GameScene::RunPendingCommands()
 {
     if (pendingCommands_.empty()) {
@@ -262,13 +415,57 @@ void GameScene::Update()
         }
     }
 
+    // Deleteキーで選択中の項目を削除（文字入力中は無効）
+#ifdef USE_IMGUI
+    const bool typing = ImGui::GetIO().WantTextInput;
+#else
+    const bool typing = false;
+#endif
+    if (!playing_ && !typing && input.TriggerKey(DIK_DELETE)) {
+        DeleteSelection();
+    }
+
+    for (auto& slot : planes_) {
+        if (slot.texIndex != slot.loadedTexIndex) {
+            slot.planes->SetTexture(textureFileList_[slot.texIndex]);
+            slot.loadedTexIndex = slot.texIndex;
+        }
+    }
+
     UpdateCameraControl();
     camera_->Update(input);
-    UpdateViewportInteraction();
-    UpdateKonami();
+    if (playing_) {
+        dragMode_ = DragMode::None; // 実行中は選択・ドラッグ移動をしない
+        UpdateKonami();             // コナミコマンドは実行中だけ有効
+    }
+    else {
+        UpdateViewportInteraction();
+    }
     UpdateObjects();
 
-    // パーティクル（パーティーモードOFFでも生存中のものは更新される）
+    // 板ポリ大量配置：全ての板のWVPを書き込む
+    for (auto& slot : planes_) {
+        slot.planes->Update(camera_->GetViewMatrix(), camera_->GetProjectionMatrix());
+    }
+
+    // パーティクル：エミッターが粒を発生させ、そのあと全ての粒を更新する
+    // （パーティーモードOFFでも生存中のものは更新される）
+    if (playing_) {
+        for (auto& emitter : emitters_) {
+            ctx_->particleSystem->UpdateEmitter(emitter);
+        }
+    }
+    else {
+        // 編集中は発生させない。Inspectorの「Play (burst now)」だけ、その場で1回プレビューする
+        for (auto& emitter : emitters_) {
+            if (emitter.playRequested) {
+                ParticleEmitter preview = emitter;
+                preview.enabled = false; // 自動発生はさせず、バーストだけ実行する
+                ctx_->particleSystem->UpdateEmitter(preview);
+                emitter.playRequested = false;
+            }
+        }
+    }
     ctx_->particleSystem->Update(camera_->GetViewMatrix(), camera_->GetProjectionMatrix(), konamiPartyMode_);
 
     for (auto& slot : sprites_) {
@@ -299,7 +496,7 @@ void GameScene::UpdateCameraControl()
     // 同じ速度でカメラを動かす。左端=A、右端=D、上端=Space(上)、下端=LShift(下)
     float panRight = 0.0f;
     float panUp = 0.0f;
-    if (dragMode_ == DragMode::Move && selection_.kind == SelectKind::Object && vp.down) {
+    if (dragMode_ == DragMode::Move && (selection_.kind == SelectKind::Object || selection_.kind == SelectKind::Planes || selection_.kind == SelectKind::Emitter) && vp.down) {
         constexpr float kEdgeMargin = 20.0f; // 端からこの距離(ゲーム画面px)以内で反応
         if (vp.mouse.x <= kEdgeMargin) panRight -= 1.0f;
         if (vp.mouse.x >= WinApp::kGameWidth - kEdgeMargin) panRight += 1.0f;
@@ -430,6 +627,89 @@ void GameScene::UpdateViewportInteraction()
                 }
             }
 
+            // パーティクルエミッターは、目印(画面上の小さな菱形)の近くをクリックしたら選ぶ（3Dより優先）
+            if (selection_.kind == SelectKind::None) {
+                constexpr float kPickRadius = 16.0f; // ゲーム画面ピクセル
+                float bestDistance2 = kPickRadius * kPickRadius;
+                int bestEmitter = -1;
+                for (int i = 0; i < static_cast<int>(emitters_.size()); ++i) {
+                    Vector2 screen{};
+                    if (!Picking::WorldToScreen(emitters_[i].position, view, projection, screen)) {
+                        continue;
+                    }
+                    const float dx = vp.mouse.x - screen.x;
+                    const float dy = vp.mouse.y - screen.y;
+                    const float distance2 = dx * dx + dy * dy;
+                    if (distance2 <= bestDistance2) {
+                        bestDistance2 = distance2;
+                        bestEmitter = i;
+                    }
+                }
+
+                if (bestEmitter >= 0) {
+                    selection_ = { SelectKind::Emitter, bestEmitter };
+
+                    // ドラッグ平面：通常はカメラに平行、Shiftなら水平
+                    const Matrix4x4 cameraWorld = Inverse(view);
+                    const Vector3 cameraForward = { cameraWorld.m[2][0], cameraWorld.m[2][1], cameraWorld.m[2][2] };
+                    const Vector3 position = emitters_[bestEmitter].position;
+                    dragPlaneNormal_ = vp.shift ? Vector3{ 0.0f, 1.0f, 0.0f } : cameraForward;
+                    dragPlanePoint_ = position;
+
+                    Vector3 hit{};
+                    if (Picking::RayIntersectsPlane(ray, dragPlanePoint_, dragPlaneNormal_, hit)) {
+                        dragObjectOffset_ = position.Subtract(hit);
+                        dragMode_ = DragMode::Move;
+                    }
+                }
+            }
+
+            // 板ポリ大量配置：どれか1枚でも当たれば選ぶ。ただし3Dオブジェクトのほうが手前ならそちらを優先する
+            if (selection_.kind == SelectKind::None) {
+                const Vector3 planeMin = { -0.5f, -0.5f, -0.02f };
+                const Vector3 planeMax = { 0.5f, 0.5f, 0.02f };
+
+                float bestPlaneT = (std::numeric_limits<float>::max)();
+                int bestPlanes = -1;
+                for (int i = 0; i < static_cast<int>(planes_.size()); ++i) {
+                    const int drawCount = planes_[i].planes->GetDrawCount();
+                    for (int k = 0; k < drawCount; ++k) {
+                        float t = 0.0f;
+                        if (Picking::RayIntersectsBox(ray, planes_[i].planes->GetInstanceTransform(k), planeMin, planeMax, t) && t < bestPlaneT) {
+                            bestPlaneT = t;
+                            bestPlanes = i;
+                        }
+                    }
+                }
+
+                float nearestObjectT = (std::numeric_limits<float>::max)();
+                for (auto& slot : objects_) {
+                    Object3d& object = slot.object->GetObject3d();
+                    const Model* model = object.GetModel();
+                    float t = 0.0f;
+                    if (model && Picking::RayIntersectsBox(ray, object.GetTransform(), model->GetBoundsMin(), model->GetBoundsMax(), t)) {
+                        nearestObjectT = (std::min)(nearestObjectT, t);
+                    }
+                }
+
+                if (bestPlanes >= 0 && bestPlaneT < nearestObjectT) {
+                    selection_ = { SelectKind::Planes, bestPlanes };
+
+                    // ドラッグ平面：通常はカメラに平行、Shiftなら水平
+                    const Matrix4x4 cameraWorld = Inverse(view);
+                    const Vector3 cameraForward = { cameraWorld.m[2][0], cameraWorld.m[2][1], cameraWorld.m[2][2] };
+                    const Vector3 position = planes_[bestPlanes].planes->GetSettings().base.Translate;
+                    dragPlaneNormal_ = vp.shift ? Vector3{ 0.0f, 1.0f, 0.0f } : cameraForward;
+                    dragPlanePoint_ = position;
+
+                    Vector3 hit{};
+                    if (Picking::RayIntersectsPlane(ray, dragPlanePoint_, dragPlaneNormal_, hit)) {
+                        dragObjectOffset_ = position.Subtract(hit);
+                        dragMode_ = DragMode::Move;
+                    }
+                }
+            }
+
             // 3Dオブジェクトは一番カメラに近いものを選ぶ
             if (selection_.kind == SelectKind::None) {
                 float bestT = (std::numeric_limits<float>::max)();
@@ -496,6 +776,18 @@ void GameScene::UpdateViewportInteraction()
             Vector3 hit{};
             if (Picking::RayIntersectsPlane(ray, dragPlanePoint_, dragPlaneNormal_, hit)) {
                 objects_[selection_.index].object->GetObject3d().GetTransform().Translate = hit.Add(dragObjectOffset_);
+            }
+        }
+        else if (selection_.kind == SelectKind::Planes && selection_.index < static_cast<int>(planes_.size())) {
+            Vector3 hit{};
+            if (Picking::RayIntersectsPlane(ray, dragPlanePoint_, dragPlaneNormal_, hit)) {
+                planes_[selection_.index].planes->GetSettings().base.Translate = hit.Add(dragObjectOffset_);
+            }
+        }
+        else if (selection_.kind == SelectKind::Emitter && selection_.index < static_cast<int>(emitters_.size())) {
+            Vector3 hit{};
+            if (Picking::RayIntersectsPlane(ray, dragPlanePoint_, dragPlaneNormal_, hit)) {
+                emitters_[selection_.index].position = hit.Add(dragObjectOffset_);
             }
         }
         else {
@@ -645,6 +937,54 @@ void GameScene::DrawSelectionOutline()
         EditorLayout::DrawViewportOverlay(handles, 4, true);
         EditorLayout::DrawViewportHandles(handles, 8);
     }
+
+    // 板ポリ大量配置：選択中のグループは、全ての板の枠を描く
+    if (selection_.kind == SelectKind::Planes && selection_.index < static_cast<int>(planes_.size())) {
+        const InstancedPlanes& planes = *planes_[selection_.index].planes;
+        const Matrix4x4& viewMatrix = camera_->GetViewMatrix();
+        const Matrix4x4& projectionMatrix = camera_->GetProjectionMatrix();
+        const Vector3 local[4] = { { -0.5f, 0.5f, 0.0f }, { 0.5f, 0.5f, 0.0f }, { 0.5f, -0.5f, 0.0f }, { -0.5f, -0.5f, 0.0f } };
+        for (int i = 0; i < planes.GetDrawCount(); ++i) {
+            const Transform t = planes.GetInstanceTransform(i);
+            const Matrix4x4 world = Matrix4x4::MakeAffineMatrix(t.Scale, t.Rotate, t.Translate);
+            Vector2 corners[4];
+            bool visible = true;
+            for (int c = 0; c < 4 && visible; ++c) {
+                const Vector3 p = {
+                    local[c].x * world.m[0][0] + local[c].y * world.m[1][0] + local[c].z * world.m[2][0] + world.m[3][0],
+                    local[c].x * world.m[0][1] + local[c].y * world.m[1][1] + local[c].z * world.m[2][1] + world.m[3][1],
+                    local[c].x * world.m[0][2] + local[c].y * world.m[1][2] + local[c].z * world.m[2][2] + world.m[3][2]
+                };
+                visible = Picking::WorldToScreen(p, viewMatrix, projectionMatrix, corners[c]);
+            }
+            if (visible) {
+                EditorLayout::DrawViewportOverlay(corners, 4, true);
+            }
+        }
+    }
+
+    // パーティクルエミッターの目印（菱形）。選択中は大きく描き、発射方向の線も出す
+    const Matrix4x4& view = camera_->GetViewMatrix();
+    const Matrix4x4& projection = camera_->GetProjectionMatrix();
+    for (int i = 0; i < static_cast<int>(emitters_.size()); ++i) {
+        Vector2 c{};
+        if (!Picking::WorldToScreen(emitters_[i].position, view, projection, c)) {
+            continue;
+        }
+        const bool selected = selection_.kind == SelectKind::Emitter && selection_.index == i;
+        const float r = selected ? 11.0f : 7.0f;
+        const Vector2 diamond[4] = { { c.x, c.y - r }, { c.x + r, c.y }, { c.x, c.y + r }, { c.x - r, c.y } };
+        EditorLayout::DrawViewportOverlay(diamond, 4, true);
+
+        if (selected) {
+            const Vector3 dir = emitters_[i].direction.Normalize();
+            Vector2 tip{};
+            if (Picking::WorldToScreen(emitters_[i].position.Add(dir.Multiply(3.0f)), view, projection, tip)) {
+                const Vector2 line[2] = { c, tip };
+                EditorLayout::DrawViewportOverlay(line, 2, false);
+            }
+        }
+    }
 #endif // USE_IMGUI
 }
 
@@ -750,6 +1090,14 @@ void GameScene::Draw()
         }
     }
 
+    // 板ポリ大量配置（DrawInstancedで1グループ1回）
+    if (!planes_.empty()) {
+        ctx_->instancedPlaneCommon->PreDraw();
+        for (auto& slot : planes_) {
+            slot.planes->Draw();
+        }
+    }
+
     // Sprite（Hierarchyの上から順に重ねて描く）
     ctx_->spriteCommon->PreDraw();
     for (auto& slot : sprites_) {
@@ -766,7 +1114,9 @@ void GameScene::Draw()
 void GameScene::DrawImGui()
 {
 #ifdef USE_IMGUI
-    DrawSelectionOutline();
+    if (!playing_) {
+        DrawSelectionOutline(); // 実行中は選択枠・目印を出さない
+    }
 
     const int objectCount = static_cast<int>(objects_.size());
     const int spriteCount = static_cast<int>(sprites_.size());
@@ -779,6 +1129,31 @@ void GameScene::DrawImGui()
                     pendingCommands_.push_back([this, i]() {
                         const int newIndex = AddObject(i, { 0.0f, 0.0f, 0.0f });
                         selection_ = { SelectKind::Object, newIndex };
+                        });
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Add Instanced Planes")) {
+            for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
+                if (ImGui::MenuItem(textureFileList_[i].c_str())) {
+                    pendingCommands_.push_back([this, i]() {
+                        // 10枚が横一列に並んで、ちょうど画面の中央に来る位置に置く
+                        const InstancedPlanes::Settings defaults{};
+                        const float startX = -defaults.spacing.x * (defaults.count - 1) * 0.5f;
+                        const int newIndex = AddPlanes(i, { startX, 0.0f, 0.0f });
+                        selection_ = { SelectKind::Planes, newIndex };
+                        });
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Add Particle Emitter")) {
+            for (int i = 0; i < kParticlePresetCount; ++i) {
+                if (ImGui::MenuItem(kParticlePresetNames[i])) {
+                    pendingCommands_.push_back([this, i]() {
+                        const int newIndex = AddEmitter(static_cast<ParticlePreset>(i), { 0.0f, 0.0f, 0.0f });
+                        selection_ = { SelectKind::Emitter, newIndex };
                         });
                 }
             }
@@ -803,12 +1178,35 @@ void GameScene::DrawImGui()
     //--------------------------------------------------
     EditorLayout::Begin("Hierarchy", EditorLayout::Panel::Hierarchy);
     ImGui::Text("Scene: Game");
-    if (ImGui::Button("+ Add")) {
-        ImGui::OpenPopup("AddPopup");
+
+    // 実行 / 停止
+    if (playing_) {
+        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Mode: PLAY");
+        ImGui::SameLine();
+        if (ImGui::Button("Stop")) {
+            StopPlay();
+        }
     }
-    if (ImGui::BeginPopup("AddPopup")) {
-        drawAddMenu();
-        ImGui::EndPopup();
+    else {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Mode: EDIT");
+        ImGui::SameLine();
+        if (ImGui::Button("Play")) {
+            StartPlay();
+        }
+    }
+
+    // 追加・複製・削除は編集モードのときだけ
+    if (playing_) {
+        ImGui::TextDisabled("(Add/Duplicate/Delete: EDIT mode only)");
+    }
+    else {
+        if (ImGui::Button("+ Add")) {
+            ImGui::OpenPopup("AddPopup");
+        }
+        if (ImGui::BeginPopup("AddPopup")) {
+            drawAddMenu();
+            ImGui::EndPopup();
+        }
     }
     ImGui::Separator();
 
@@ -824,10 +1222,10 @@ void GameScene::DrawImGui()
             selection_ = { SelectKind::Object, i };
         }
         if (ImGui::BeginPopupContextItem("ObjectContext")) {
-            if (ImGui::MenuItem("Duplicate")) {
+            if (ImGui::MenuItem("Duplicate", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() { DuplicateObject(i); });
             }
-            if (ImGui::MenuItem("Delete")) {
+            if (ImGui::MenuItem("Delete", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() {
                     if (i < static_cast<int>(objects_.size())) {
                         objects_.erase(objects_.begin() + i);
@@ -852,13 +1250,69 @@ void GameScene::DrawImGui()
             selection_ = { SelectKind::Sprite, i };
         }
         if (ImGui::BeginPopupContextItem("SpriteContext")) {
-            if (ImGui::MenuItem("Duplicate")) {
+            if (ImGui::MenuItem("Duplicate", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() { DuplicateSprite(i); });
             }
-            if (ImGui::MenuItem("Delete")) {
+            if (ImGui::MenuItem("Delete", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() {
                     if (i < static_cast<int>(sprites_.size())) {
                         sprites_.erase(sprites_.begin() + i);
+                        selection_ = {};
+                    }
+                    });
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+
+    // 板ポリ大量配置
+    for (int i = 0; i < static_cast<int>(planes_.size()); ++i) {
+        std::string label = std::format("[Planes {}] {} x{}", i, textureFileList_[planes_[i].texIndex], planes_[i].planes->GetDrawCount());
+        const bool selected = selection_.kind == SelectKind::Planes && selection_.index == i;
+        ImGui::PushID(3000 + i);
+        if (ImGui::Selectable(label.c_str(), selected)) {
+            selection_ = { SelectKind::Planes, i };
+        }
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            selection_ = { SelectKind::Planes, i };
+        }
+        if (ImGui::BeginPopupContextItem("PlanesContext")) {
+            if (ImGui::MenuItem("Duplicate", nullptr, false, !playing_)) {
+                pendingCommands_.push_back([this, i]() { DuplicatePlanes(i); });
+            }
+            if (ImGui::MenuItem("Delete", nullptr, false, !playing_)) {
+                pendingCommands_.push_back([this, i]() {
+                    if (i < static_cast<int>(planes_.size())) {
+                        planes_.erase(planes_.begin() + i);
+                        selection_ = {};
+                    }
+                    });
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+
+    // パーティクルエミッター
+    for (int i = 0; i < static_cast<int>(emitters_.size()); ++i) {
+        std::string label = std::format("[Emitter {}] {}", i, kParticlePresetNames[static_cast<int>(emitters_[i].preset)]);
+        const bool selected = selection_.kind == SelectKind::Emitter && selection_.index == i;
+        ImGui::PushID(2000 + i);
+        if (ImGui::Selectable(label.c_str(), selected)) {
+            selection_ = { SelectKind::Emitter, i };
+        }
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            selection_ = { SelectKind::Emitter, i };
+        }
+        if (ImGui::BeginPopupContextItem("EmitterContext")) {
+            if (ImGui::MenuItem("Duplicate", nullptr, false, !playing_)) {
+                pendingCommands_.push_back([this, i]() { DuplicateEmitter(i); });
+            }
+            if (ImGui::MenuItem("Delete", nullptr, false, !playing_)) {
+                pendingCommands_.push_back([this, i]() {
+                    if (i < static_cast<int>(emitters_.size())) {
+                        emitters_.erase(emitters_.begin() + i);
                         selection_ = {};
                     }
                     });
@@ -874,9 +1328,12 @@ void GameScene::DrawImGui()
     }
 
     ImGui::Separator();
-    ImGui::Text("Party Mode: %s", konamiPartyMode_ ? "ON" : "OFF");
+    ImGui::Text("Party Mode: %s (Konami, PLAY only)", konamiPartyMode_ ? "ON" : "OFF");
     ImGui::Text("Particles: %zu / %u", ctx_->particleSystem->GetCount(), ParticleSystem::kMaxParticles);
+    ImGui::Text("Play: emitters run, Stop: scene restored");
     ImGui::Text("Viewport: click = select, drag = move");
+    ImGui::Text("Emitter = diamond mark (click to select)");
+    ImGui::Text("Instanced Planes: one group = N planes");
     ImGui::Text("Drag 3D to the edge: camera follows");
     ImGui::Text("Drag edge = stretch that way");
     ImGui::Text("Drag corner = scale (Shift: free)");
@@ -887,7 +1344,7 @@ void GameScene::DrawImGui()
     ImGui::Text("BACKSPACE: back to Title");
 
     // 項目の上以外（空きスペース）を右クリックしたときのメニュー
-    if (ImGui::BeginPopupContextWindow("HierarchyContext", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+    if (!playing_ && ImGui::BeginPopupContextWindow("HierarchyContext", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
         drawAddMenu();
         ImGui::EndPopup();
     }
@@ -897,6 +1354,13 @@ void GameScene::DrawImGui()
     // Inspector（右）：選択中の項目のプロパティ
     //--------------------------------------------------
     EditorLayout::Begin("Inspector", EditorLayout::Panel::Inspector);
+
+    // 選択中の項目の削除ボタン（編集モードのみ）。Deleteキー / Hierarchyの右クリックでも削除できる
+    if (!playing_ && (selection_.kind == SelectKind::Object || selection_.kind == SelectKind::Sprite || selection_.kind == SelectKind::Planes || selection_.kind == SelectKind::Emitter)) {
+        if (ImGui::Button("Delete (Del key)")) {
+            pendingCommands_.push_back([this]() { DeleteSelection(); });
+        }
+    }
 
     if (selection_.kind == SelectKind::Object && selection_.index < objectCount) {
         ObjectSlot& slot = objects_[selection_.index];
@@ -946,6 +1410,95 @@ void GameScene::DrawImGui()
             ImGui::DragFloat2("UVTranslate", &sprite.GetUvTransform().Translate.x, 0.01f, -10.0f, 10.0f);
             ImGui::DragFloat2("UVScale", &sprite.GetUvTransform().Scale.x, 0.01f, -10.0f, 10.0f);
             ImGui::SliderAngle("UVRotate", &sprite.GetUvTransform().Rotate.z);
+        }
+    }
+    else if (selection_.kind == SelectKind::Planes && selection_.index < static_cast<int>(planes_.size())) {
+        PlanesSlot& slot = planes_[selection_.index];
+        InstancedPlanes::Settings& settings = slot.planes->GetSettings();
+
+        ImGui::Text("Instanced Planes [%d]", selection_.index);
+        ImGui::Text("%d planes, 1 DrawInstanced call", slot.planes->GetDrawCount());
+        ImGui::Separator();
+        ImGui::Combo("Texture", &slot.texIndex, textureFileListCStr_.data(), static_cast<int>(textureFileListCStr_.size()));
+        ImGui::SliderInt("Count", &settings.count, 1, static_cast<int>(InstancedPlanes::kMaxInstances));
+        ImGui::DragFloat3("Size", &settings.base.Scale.x, 0.02f);
+        ImGui::DragFloat3("Rotate", &settings.base.Rotate.x, 0.01f);
+        ImGui::DragFloat3("Position", &settings.base.Translate.x, 0.05f);
+        ImGui::DragFloat3("Spacing", &settings.spacing.x, 0.02f);
+        ImGui::DragFloat3("Rotate Step", &settings.rotateStep.x, 0.005f);
+        ImGui::ColorEdit4("Color", &settings.color.x);
+    }
+    else if (selection_.kind == SelectKind::Emitter && selection_.index < static_cast<int>(emitters_.size())) {
+        ParticleEmitter& e = emitters_[selection_.index];
+
+        ImGui::Text("Particle Emitter [%d]", selection_.index);
+        ImGui::Separator();
+
+        // プリセットを選ぶと、下の値が全てそのプリセットの値に置き換わる
+        int preset = static_cast<int>(e.preset);
+        if (ImGui::Combo("Preset", &preset, kParticlePresetNames, kParticlePresetCount)) {
+            e.ApplyPreset(static_cast<ParticlePreset>(preset));
+        }
+        ImGui::Checkbox("Enabled", &e.enabled);
+        ImGui::SameLine();
+        if (ImGui::Button("Play (burst now)")) {
+            e.playRequested = true;
+        }
+        ImGui::DragFloat3("Position", &e.position.x, 0.05f);
+
+        if (ImGui::CollapsingHeader("Emit", ImGuiTreeNodeFlags_DefaultOpen)) {
+            int mode = static_cast<int>(e.mode);
+            if (ImGui::Combo("Mode", &mode, kEmitModeNames, 2)) {
+                e.mode = static_cast<EmitMode>(mode);
+            }
+            if (e.mode == EmitMode::Continuous) {
+                ImGui::DragFloat("Rate (/sec)", &e.rate, 1.0f, 0.0f, 1000.0f);
+            }
+            else {
+                ImGui::DragInt("Burst Count", &e.burstCount, 1.0f, 1, 1000);
+                ImGui::DragFloat("Interval (0=manual)", &e.burstInterval, 0.05f, 0.0f, 30.0f);
+            }
+            ImGui::DragFloat("Radius", &e.radius, 0.05f, 0.0f, 50.0f);
+            ImGui::Checkbox("Flat (XZ disc)", &e.emitFlat);
+            ImGui::Checkbox("Fireworks (explode at end)", &e.fireworks);
+            if (e.fireworks) {
+                ImGui::DragInt("Spark Count", &e.sparkCount, 1.0f, 1, 300);
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Motion", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::DragFloat3("Direction", &e.direction.x, 0.01f)) {
+                if (e.direction.Length() > 0.0f) {
+                    e.direction = e.direction.Normalize();
+                }
+                else {
+                    e.direction = { 0.0f, 1.0f, 0.0f };
+                }
+            }
+            ImGui::SliderFloat("Spread (deg)", &e.spreadDeg, 0.0f, 180.0f);
+            ImGui::DragFloatRange2("Speed", &e.speedMin, &e.speedMax, 0.05f, 0.0f, 50.0f);
+            ImGui::DragFloatRange2("Life (sec)", &e.lifeMin, &e.lifeMax, 0.05f, 0.05f, 30.0f);
+            ImGui::DragFloat("Gravity", &e.gravity, 0.05f, -20.0f, 20.0f);
+            ImGui::DragFloat("Drag", &e.drag, 0.02f, 0.0f, 10.0f);
+            ImGui::DragFloat("Wobble", &e.wobble, 0.02f, 0.0f, 10.0f);
+        }
+
+        if (ImGui::CollapsingHeader("Look", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragFloat("Size Start", &e.sizeStart, 0.02f, 0.0f, 20.0f);
+            ImGui::DragFloat("Size End", &e.sizeEnd, 0.02f, 0.0f, 20.0f);
+            ImGui::SliderFloat("Size Random", &e.sizeRandom, 0.0f, 1.0f);
+            ImGui::Checkbox("Rainbow (random hue)", &e.rainbow);
+            ImGui::ColorEdit4("Color Start", &e.colorStart.x);
+            ImGui::ColorEdit4("Color End", &e.colorEnd.x);
+            int shape = static_cast<int>(e.shape);
+            if (ImGui::Combo("Shape", &shape, kParticleShapeNames, 3)) {
+                e.shape = static_cast<ParticleShape>(shape);
+            }
+            int blend = e.additive ? 1 : 0;
+            const char* blendNames[] = { "Normal", "Add" };
+            if (ImGui::Combo("Blend", &blend, blendNames, 2)) {
+                e.additive = (blend == 1);
+            }
         }
     }
     else if (selection_.kind == SelectKind::Light) {

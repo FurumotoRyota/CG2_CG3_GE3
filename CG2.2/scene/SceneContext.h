@@ -10,6 +10,7 @@ class ModelManager;
 class Object3dCommon;
 class SpriteCommon;
 class ParticleSystem;
+class InstancedPlaneCommon;
 class SceneManager;
 
 /// <summary>
@@ -27,5 +28,6 @@ struct SceneContext
     Object3dCommon* object3dCommon = nullptr;
     SpriteCommon* spriteCommon = nullptr;
     ParticleSystem* particleSystem = nullptr;
+    InstancedPlaneCommon* instancedPlaneCommon = nullptr;
     SceneManager* sceneManager = nullptr;
 };

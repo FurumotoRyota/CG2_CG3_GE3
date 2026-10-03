@@ -1,25 +1,41 @@
+// パーティクル用PixelShader
+// テクスチャは使わず、四角のポリゴンの上で「丸」や「ぼかし」を計算で作る。Lightingは行わない
+
 struct PixelShaderInput
 {
     float4 position : SV_POSITION;
     float2 texcoord : TEXCOORD0;
     float4 color : COLOR0;
+    float shape : TEXCOORD1;
 };
 
-struct PixelShaderOutput
+float4 main(PixelShaderInput input) : SV_TARGET
 {
-    float4 color : SV_TARGET0;
-};
+    // 中心からの距離（中心0～ふち1）
+    float2 p = input.texcoord * 2.0f - 1.0f;
+    float d = length(p);
 
-PixelShaderOutput main(PixelShaderInput input)
-{
-    PixelShaderOutput output;
+    float mask = 1.0f;
+    if (input.shape < 0.5f)
+    {
+        // SoftCircle：中心ほど濃く、ふちに向かってなめらかに消える
+        float v = saturate(1.0f - d);
+        mask = v * v;
+    }
+    else if (input.shape < 1.5f)
+    {
+        // Circle：くっきりした丸（ふちだけ少しぼかす）
+        mask = 1.0f - smoothstep(0.85f, 1.0f, d);
+    }
+    // Square：mask = 1 のまま
 
-    // texcoordは0~1。中心(0.5,0.5)からの距離で円形のソフトなアルファを作る（テクスチャ不要）
-    float2 centered = input.texcoord - 0.5f;
-    float dist = length(centered) * 2.0f; // 0(中心)～1(端)
-    float alpha = saturate(1.0f - dist);
-    alpha = alpha * alpha; // ソフトなフォールオフ
+    float4 color = input.color;
+    color.a *= mask;
 
-    output.color = float4(input.color.rgb, input.color.a * alpha);
-    return output;
+    // 完全に透明なら書かない
+    if (color.a <= 0.0f)
+    {
+        discard;
+    }
+    return color;
 }

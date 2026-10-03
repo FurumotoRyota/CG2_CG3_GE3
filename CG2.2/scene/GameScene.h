@@ -6,11 +6,14 @@
 
 #include "Scene.h"
 #include "../2d/Sprite.h"
+#include "../3d/InstancedPlanes.h"
 #include "../game/GameObject.h"
 #include "../camera/Camera.h"
 #include "../camera/DebugCamera.h"
 #include "../input/KonamiCommand.h"
+#include "../math/Transform.h"
 #include "../math/Vector2.h"
+#include "../particle/ParticleEmitter.h"
 #include "../math/Vector4.h"
 
 struct DirectionalLight;
@@ -48,8 +51,16 @@ private:
         Vector2 size{ 640.0f, 360.0f }; // 作成時の縦横サイズ（複製に使う）
     };
 
+    // 板ポリ大量配置1グループぶんの状態（同じテクスチャの板を count 枚、DrawInstanced 1回で描く）
+    struct PlanesSlot
+    {
+        std::unique_ptr<InstancedPlanes> planes;
+        int texIndex = 0;       // textureFileList_ 内のインデックス
+        int loadedTexIndex = 0;
+    };
+
     // Hierarchyでの選択
-    enum class SelectKind { None, Object, Sprite, Light };
+    enum class SelectKind { None, Object, Sprite, Planes, Emitter, Light };
     struct Selection
     {
         SelectKind kind = SelectKind::None;
@@ -61,7 +72,14 @@ private:
     int AddSprite(int texIndex, const Vector2& size);
     void DuplicateObject(int index);
     void DuplicateSprite(int index);
+    int AddPlanes(int texIndex, const Vector3& position);
+    void DuplicatePlanes(int index);
+    int AddEmitter(ParticlePreset preset, const Vector3& position);
+    void DuplicateEmitter(int index);
     void RunPendingCommands();
+    void DeleteSelection(); // 選択中のオブジェクト/スプライト/エミッターを削除する
+    void StartPlay(); // 実行開始：今のシーンを保存してから動かす
+    void StopPlay();  // 実行停止：保存しておいた状態に戻す
     void UpdateKonami();
     void UpdateObjects();
     void UpdateViewportInteraction(); // Viewport上のクリック選択・ドラッグ移動
@@ -75,6 +93,25 @@ private:
     bool cameraActive_ = false;           // 右クリックホールドでカメラ操作中
     std::vector<ObjectSlot> objects_;
     std::vector<SpriteSlot> sprites_;
+    std::vector<PlanesSlot> planes_;        // 板ポリ大量配置
+    std::vector<ParticleEmitter> emitters_; // シーンに置いたパーティクルエミッター
+
+    // 実行(Play)モード。false の間は編集モードで、シーンは止まっている
+    bool playing_ = false;
+    struct Snapshot
+    {
+        struct Item
+        {
+            Transform transform;
+            Transform uvTransform;
+            Vector4 color;
+        };
+        std::vector<Item> objects;
+        std::vector<Item> sprites;
+        std::vector<InstancedPlanes::Settings> planes;
+        std::vector<ParticleEmitter> emitters;
+    };
+    Snapshot snapshot_; // Play開始時のシーン（Stopで戻す）
 
     std::vector<std::string> objFileList_;
     std::vector<const char*> objFileListCStr_;

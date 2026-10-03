@@ -8,12 +8,25 @@ void SrvManager::Initialize(DirectXCommon* dxCommon)
     assert(dxCommon);
     dxCommon_ = dxCommon;
     nextIndex_ = kReservedCount;
+    freeList_.clear();
 }
 
 uint32_t SrvManager::Allocate()
 {
+    if (!freeList_.empty()) {
+        const uint32_t index = freeList_.back();
+        freeList_.pop_back();
+        return index;
+    }
     assert(nextIndex_ < DirectXCommon::kSrvHeapSize); // ヒープが足りない場合は kSrvHeapSize を増やす
     return nextIndex_++;
+}
+
+void SrvManager::Free(uint32_t index)
+{
+    if (index >= kReservedCount) {
+        freeList_.push_back(index);
+    }
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE SrvManager::GetCPUDescriptorHandle(uint32_t index) const

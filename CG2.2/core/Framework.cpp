@@ -17,6 +17,7 @@ void Framework::Initialize()
     object3dCommon_.Initialize(&dxCommon_, &textureManager_, &modelManager_);
     spriteCommon_.Initialize(&dxCommon_, &textureManager_);
     particleSystem_.Initialize(&dxCommon_, &srvManager_);
+    instancedPlaneCommon_.Initialize(&dxCommon_, &textureManager_, &srvManager_);
 
 #ifdef USE_IMGUI
     // ゲーム画面(オフスクリーン)をImGuiのテクスチャとして使うためのSRV
@@ -37,6 +38,7 @@ void Framework::Initialize()
     context_.object3dCommon = &object3dCommon_;
     context_.spriteCommon = &spriteCommon_;
     context_.particleSystem = &particleSystem_;
+    context_.instancedPlaneCommon = &instancedPlaneCommon_;
     context_.sceneManager = &sceneManager_;
 
     sceneManager_.Initialize(&context_);
