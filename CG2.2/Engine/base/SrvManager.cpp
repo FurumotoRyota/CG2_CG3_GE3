@@ -1,4 +1,4 @@
-#include "SrvManager.h"
+﻿#include "SrvManager.h"
 #include "../base/DirectXCommon.h"
 
 #include <cassert>

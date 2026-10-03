@@ -1,4 +1,4 @@
-#include "ModelManager.h"
+﻿#include "ModelManager.h"
 #include "../3d/ModelLoader.h"
 
 #include <cassert>

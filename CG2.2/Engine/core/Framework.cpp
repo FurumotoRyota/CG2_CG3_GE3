@@ -1,4 +1,4 @@
-#include "Framework.h"
+﻿#include "Framework.h"
 #include "../base/Logger.h"
 #include "../base/CrashHandler.h"
 #include "../editor/EditorLayout.h"

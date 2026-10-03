@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <cstdint>
 #include "../math/Vector3.h"
 #include "../math/Vector4.h"

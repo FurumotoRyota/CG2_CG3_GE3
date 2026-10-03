@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 /// <summary>
 /// ブレンドモード（描く色を、すでに描かれている色とどう混ぜるか）

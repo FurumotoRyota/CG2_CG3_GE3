@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "../base/WinApp.h"
 #include "../base/DirectXCommon.h"
 #include "../base/SrvManager.h"

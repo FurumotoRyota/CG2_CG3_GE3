@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // エディタ風のパネル配置（ImGui使用時のみ有効）
 //

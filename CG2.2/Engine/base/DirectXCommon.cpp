@@ -1,4 +1,4 @@
-#include "DirectXCommon.h"
+﻿#include "DirectXCommon.h"
 #include "Logger.h"
 #include "StringUtility.h"
 #include "DirectXTex/d3dx12.h"

@@ -1,4 +1,4 @@
-#include "Game.h"
+﻿#include "Game.h"
 #include "../scene/TitleScene.h"
 #include "../scene/GameScene.h"
 #include "editor/EditorLayout.h"

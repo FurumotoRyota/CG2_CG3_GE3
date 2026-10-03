@@ -1,4 +1,4 @@
-#include "Sprite.h"
+﻿#include "Sprite.h"
 #include "../2d/SpriteCommon.h"
 #include "../3d/VertexData.h"
 #include "../base/BasicPipeline.h"

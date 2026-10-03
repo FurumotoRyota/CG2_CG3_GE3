@@ -1,4 +1,4 @@
-#include "ParticleEmitter.h"
+﻿#include "ParticleEmitter.h"
 
 void ParticleEmitter::ApplyPreset(ParticlePreset newPreset)
 {

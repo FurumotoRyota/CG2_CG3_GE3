@@ -1,4 +1,4 @@
-#include "KonamiCommand.h"
+﻿#include "KonamiCommand.h"
 #include "Input.h"
 
 bool KonamiCommand::IsTriggered(Button button, const Input& input)
