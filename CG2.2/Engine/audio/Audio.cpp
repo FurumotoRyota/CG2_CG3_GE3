@@ -1,10 +1,17 @@
 ﻿#include "Audio.h"
 
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
+
 #include <cassert>
 #include <cstring>
 #include <fstream>
 
 #pragma comment(lib, "xaudio2.lib")
+#pragma comment(lib, "mfplat.lib")      // Media Foundation platform
+#pragma comment(lib, "mfreadwrite.lib") // IMFSourceReader
+#pragma comment(lib, "mfuuid.lib")      // MF GUIDs
 
 namespace
 {
@@ -34,6 +41,10 @@ void Audio::Initialize()
 
     hr = xAudio2_->CreateMasteringVoice(&masterVoice_);
     assert(SUCCEEDED(hr));
+
+    // Media Foundation (used to decode MP3/AAC/etc. into PCM)
+    hr = MFStartup(MF_VERSION);
+    assert(SUCCEEDED(hr));
 }
 
 void Audio::Finalize()
@@ -54,6 +65,8 @@ void Audio::Finalize()
         masterVoice_ = nullptr;
     }
     xAudio2_.Reset();
+
+    MFShutdown();
 }
 
 Audio::SoundHandle Audio::LoadWave(const std::string& filename)
@@ -97,6 +110,75 @@ Audio::SoundHandle Audio::LoadWave(const std::string& filename)
     sound.wfex = format.fmt;
     sound.buffer.resize(dataChunkHeader.size);
     file.read(reinterpret_cast<char*>(sound.buffer.data()), dataChunkHeader.size);
+
+    SoundHandle handle = nextHandle_++;
+    sounds_.emplace(handle, std::move(sound));
+    return handle;
+}
+
+Audio::SoundHandle Audio::LoadSound(const std::string& filename)
+{
+    // UTF-8 path -> wide string
+    const int wideLength = MultiByteToWideChar(CP_UTF8, 0, filename.c_str(), -1, nullptr, 0);
+    std::wstring widePath(static_cast<size_t>(wideLength), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, filename.c_str(), -1, widePath.data(), wideLength);
+
+    // Open the file with a source reader (it picks the right decoder for the format)
+    Microsoft::WRL::ComPtr<IMFSourceReader> reader;
+    HRESULT hr = MFCreateSourceReaderFromURL(widePath.c_str(), nullptr, reader.GetAddressOf());
+    assert(SUCCEEDED(hr));
+
+    reader->SetStreamSelection(static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS), FALSE);
+    reader->SetStreamSelection(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), TRUE);
+
+    // Ask the reader to output uncompressed PCM
+    Microsoft::WRL::ComPtr<IMFMediaType> pcmType;
+    hr = MFCreateMediaType(pcmType.GetAddressOf());
+    assert(SUCCEEDED(hr));
+    pcmType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+    pcmType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
+    hr = reader->SetCurrentMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), nullptr, pcmType.Get());
+    assert(SUCCEEDED(hr));
+
+    // Get the actual PCM format (sample rate, channels, bit depth)
+    Microsoft::WRL::ComPtr<IMFMediaType> outType;
+    hr = reader->GetCurrentMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), outType.GetAddressOf());
+    assert(SUCCEEDED(hr));
+
+    WAVEFORMATEX* waveFormat = nullptr;
+    UINT32 waveFormatSize = 0;
+    hr = MFCreateWaveFormatExFromMFMediaType(outType.Get(), &waveFormat, &waveFormatSize);
+    assert(SUCCEEDED(hr));
+
+    Sound sound;
+    sound.wfex = *waveFormat;
+    CoTaskMemFree(waveFormat);
+
+    // Read all samples and append the PCM data
+    while (true) {
+        DWORD flags = 0;
+        Microsoft::WRL::ComPtr<IMFSample> sample;
+        hr = reader->ReadSample(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), 0, nullptr, &flags, nullptr, sample.GetAddressOf());
+        assert(SUCCEEDED(hr));
+
+        if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
+            break;
+        }
+        if (!sample) {
+            continue;
+        }
+
+        Microsoft::WRL::ComPtr<IMFMediaBuffer> mediaBuffer;
+        hr = sample->ConvertToContiguousBuffer(mediaBuffer.GetAddressOf());
+        assert(SUCCEEDED(hr));
+
+        BYTE* data = nullptr;
+        DWORD dataLength = 0;
+        hr = mediaBuffer->Lock(&data, nullptr, &dataLength);
+        assert(SUCCEEDED(hr));
+        sound.buffer.insert(sound.buffer.end(), data, data + dataLength);
+        mediaBuffer->Unlock();
+    }
 
     SoundHandle handle = nextHandle_++;
     sounds_.emplace(handle, std::move(sound));

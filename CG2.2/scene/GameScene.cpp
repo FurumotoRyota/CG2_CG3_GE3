@@ -1494,6 +1494,30 @@ void GameScene::DrawImGui()
             if (ImGui::Combo("Shape", &shape, kParticleShapeNames, 3)) {
                 e.shape = static_cast<ParticleShape>(shape);
             }
+
+            // テクスチャ（None なら上の Shape で描く）。エミッターごとに別の画像を選べる
+            {
+                const char* kNoTexture = "(None: use shape)";
+                int currentTexture = 0; // 0 = None
+                for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
+                    if (textureFileList_[i] == e.texturePath) {
+                        currentTexture = i + 1;
+                        break;
+                    }
+                }
+                const char* preview = (currentTexture == 0) ? kNoTexture : textureFileList_[currentTexture - 1].c_str();
+                if (ImGui::BeginCombo("Particle Texture", preview)) {
+                    if (ImGui::Selectable(kNoTexture, currentTexture == 0)) {
+                        e.texturePath.clear();
+                    }
+                    for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
+                        if (ImGui::Selectable(textureFileList_[i].c_str(), currentTexture == i + 1)) {
+                            e.texturePath = textureFileList_[i];
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            }
             int blend = e.additive ? 1 : 0;
             const char* blendNames[] = { "Normal", "Add" };
             if (ImGui::Combo("Blend", &blend, blendNames, 2)) {

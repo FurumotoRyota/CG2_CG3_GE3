@@ -1,6 +1,7 @@
 ﻿#include "ParticleSystem.h"
 #include "../base/DirectXCommon.h"
 #include "../base/SrvManager.h"
+#include "../base/TextureManager.h"
 #include "../base/Logger.h"
 #include "../3d/VertexData.h"
 #include "../math/Color.h"
@@ -22,14 +23,19 @@ namespace
     }
 }
 
-void ParticleSystem::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
+void ParticleSystem::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager, TextureManager* textureManager)
 {
     assert(dxCommon);
     assert(srvManager);
+    assert(textureManager);
     dxCommon_ = dxCommon;
+    textureManager_ = textureManager;
 
     CreatePipeline();
     CreateResources(srvManager);
+
+    // テクスチャなしの粒でもルートシグネチャのテクスチャ枠には何か繋ぐ必要がある（中身は使われない）
+    dummyTexture_ = textureManager_->Load("resources/uvChecker.png");
 }
 
 void ParticleSystem::CreatePipeline()
@@ -61,14 +67,21 @@ void ParticleSystem::CreatePipeline()
     // ルートシグネチャ
     //  [0] StructuredBuffer(t0) のSRVテーブル（VS）
     //  [1] 32bit定数1個(b0)：このDrawが読み始めるインスタンスの番号（VS）
-    //      ※SV_InstanceIDは毎回0から始まるので、通常/加算の2回描画を区別するために使う
+    //      ※SV_InstanceIDは毎回0から始まるので、Drawごとの読み始め位置を区別するために使う
+    //  [2] テクスチャ(t1)のSRVテーブル（PS）。テクスチャごとにまとめたDrawの前に差し替える
     D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
     descriptorRange[0].BaseShaderRegister = 0;
     descriptorRange[0].NumDescriptors = 1;
     descriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     descriptorRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[2] = {};
+    D3D12_DESCRIPTOR_RANGE textureRange[1] = {};
+    textureRange[0].BaseShaderRegister = 1;
+    textureRange[0].NumDescriptors = 1;
+    textureRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    textureRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[3] = {};
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
     rootParameters[0].DescriptorTable.pDescriptorRanges = descriptorRange;
@@ -80,10 +93,28 @@ void ParticleSystem::CreatePipeline()
     rootParameters[1].Constants.RegisterSpace = 0;
     rootParameters[1].Constants.Num32BitValues = 1;
 
+    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[2].DescriptorTable.pDescriptorRanges = textureRange;
+    rootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(textureRange);
+
+    // テクスチャ用のサンプラー（線形補間・端は引き伸ばし）
+    D3D12_STATIC_SAMPLER_DESC staticSampler{};
+    staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    staticSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    staticSampler.MaxLOD = D3D12_FLOAT32_MAX;
+    staticSampler.ShaderRegister = 0;
+    staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
     D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
     rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     rootSignatureDesc.pParameters = rootParameters;
     rootSignatureDesc.NumParameters = _countof(rootParameters);
+    rootSignatureDesc.pStaticSamplers = &staticSampler;
+    rootSignatureDesc.NumStaticSamplers = 1;
 
     ComPtr<ID3DBlob> signatureBlob;
     ComPtr<ID3DBlob> errorBlob;
@@ -245,6 +276,10 @@ void ParticleSystem::SpawnFromEmitter(const ParticleEmitter& e)
     p.wobblePhase = Random(0.0f, 2.0f * kPi);
     p.shape = e.shape;
     p.additive = e.additive;
+    if (!e.texturePath.empty()) {
+        // 同じファイルは読み込み済みのものが返る（毎回ファイルを読むことはない）
+        p.texture = static_cast<int32_t>(textureManager_->Load(e.texturePath));
+    }
 
     if (e.rainbow) {
         const Vector4 c = HueToColor(Random(0.0f, 360.0f));
@@ -426,6 +461,9 @@ void ParticleSystem::Update(const Matrix4x4& view, const Matrix4x4& projection, 
     }
     std::sort(normalList.begin(), normalList.end(),
         [](const auto& a, const auto& b) { return a.first > b.first; });
+    // 加算は描く順番で見た目が変わらないので、同じテクスチャの粒を隣り合わせにして Draw の回数を減らす
+    std::stable_sort(additiveList.begin(), additiveList.end(),
+        [](const Particle* a, const Particle* b) { return a->texture < b->texture; });
 
     // カメラの回転成分だけを取り出したビルボード行列（平行移動は各パーティクルの位置を使う）
     cameraWorldMatrix.m[3][0] = 0.0f;
@@ -433,6 +471,7 @@ void ParticleSystem::Update(const Matrix4x4& view, const Matrix4x4& projection, 
     cameraWorldMatrix.m[3][2] = 0.0f;
     const Matrix4x4 viewProjection = Multiply(view, projection);
 
+    drawRuns_.clear();
     uint32_t index = 0;
     auto write = [&](const Particle& p) {
         const float t = (std::min)(p.currentTime / p.lifeTime, 1.0f); // 0(誕生)～1(消滅)
@@ -444,7 +483,15 @@ void ParticleSystem::Update(const Matrix4x4& view, const Matrix4x4& projection, 
 
         instanceData_[index].WVP = Multiply(world, viewProjection);
         instanceData_[index].color = Lerp(p.colorStart, p.colorEnd, t);
-        instanceData_[index].params = { static_cast<float>(p.shape), 0.0f, 0.0f, 0.0f };
+        instanceData_[index].params = { static_cast<float>(p.shape), p.texture >= 0 ? 1.0f : 0.0f, 0.0f, 0.0f };
+
+        // ブレンドとテクスチャが前の粒と同じなら同じかたまりに入れる（違えば新しいかたまりを作る）
+        if (!drawRuns_.empty() && drawRuns_.back().additive == p.additive && drawRuns_.back().texture == p.texture) {
+            ++drawRuns_.back().count;
+        }
+        else {
+            drawRuns_.push_back({ p.additive, p.texture, index, 1 });
+        }
         ++index;
         };
 
@@ -469,16 +516,19 @@ void ParticleSystem::Draw()
     commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
     commandList->SetGraphicsRootDescriptorTable(0, instanceSrvHandleGPU_);
 
-    // 通常ブレンド（バッファの先頭から）
-    if (normalCount_ > 0) {
-        commandList->SetPipelineState(normalPipelineState_.Get());
-        commandList->SetGraphicsRoot32BitConstant(1, 0, 0);
-        commandList->DrawInstanced(6, normalCount_, 0, 0);
-    }
-    // 加算ブレンド（通常の粒の後ろから）
-    if (additiveCount_ > 0) {
-        commandList->SetPipelineState(additivePipelineState_.Get());
-        commandList->SetGraphicsRoot32BitConstant(1, normalCount_, 0);
-        commandList->DrawInstanced(6, additiveCount_, 0, 0);
+    // 同じブレンド・同じテクスチャのかたまりごとに1回ずつ描く
+    // 通常ブレンド(遠い順)のあとに加算ブレンドが並んでいる
+    bool currentAdditive = false;
+    bool pipelineSet = false;
+    for (const DrawRun& run : drawRuns_) {
+        if (!pipelineSet || run.additive != currentAdditive) {
+            commandList->SetPipelineState(run.additive ? additivePipelineState_.Get() : normalPipelineState_.Get());
+            currentAdditive = run.additive;
+            pipelineSet = true;
+        }
+        const uint32_t texture = run.texture >= 0 ? static_cast<uint32_t>(run.texture) : dummyTexture_;
+        commandList->SetGraphicsRootDescriptorTable(2, textureManager_->GetSrvHandleGPU(texture));
+        commandList->SetGraphicsRoot32BitConstant(1, run.offset, 0);
+        commandList->DrawInstanced(6, run.count, 0, 0);
     }
 }

@@ -1,4 +1,6 @@
 ﻿#pragma once
+#include <string>
+
 #include "../math/Vector3.h"
 #include "../math/Vector4.h"
 
@@ -75,6 +77,7 @@ struct ParticleEmitter
     Vector4 colorEnd{ 1.0f, 1.0f, 1.0f, 0.0f };
     bool rainbow = false;        // true なら粒ごとにランダムな色相（RGBは無視。アルファだけ使う）
     ParticleShape shape = ParticleShape::SoftCircle;
+    std::string texturePath;     // 空なら上の形(shape)で描く。ファイルを指定すると、その画像を粒に貼る
     bool additive = true;        // true:加算合成(光る) false:通常のαブレンド
 
     // 花火：発生した粒(ロケット)が消えるとき、その場で火花に弾ける

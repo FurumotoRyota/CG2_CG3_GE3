@@ -5,7 +5,7 @@ struct ParticleForGPU
 {
     float4x4 WVP;
     float4 color;
-    float4 params; // x: 形(0:SoftCircle 1:Circle 2:Square)
+    float4 params; // x: 形(0:SoftCircle 1:Circle 2:Square)  y: テクスチャを使うか(1:使う)
 };
 StructuredBuffer<ParticleForGPU> gParticles : register(t0);
 
@@ -28,6 +28,7 @@ struct VertexShaderOutput
     float2 texcoord : TEXCOORD0;
     float4 color : COLOR0;
     float shape : TEXCOORD1;
+    float useTexture : TEXCOORD2;
 };
 
 VertexShaderOutput main(VertexShaderInput input, uint instanceId : SV_InstanceID)
@@ -39,5 +40,6 @@ VertexShaderOutput main(VertexShaderInput input, uint instanceId : SV_InstanceID
     output.texcoord = input.texcoord;
     output.color = particle.color;
     output.shape = particle.params.x;
+    output.useTexture = particle.params.y;
     return output;
 }

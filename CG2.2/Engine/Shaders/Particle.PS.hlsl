@@ -1,5 +1,8 @@
 // パーティクル用PixelShader
-// テクスチャは使わず、四角のポリゴンの上で「丸」や「ぼかし」を計算で作る。Lightingは行わない
+// テクスチャなしの粒は、四角のポリゴンの上で「丸」や「ぼかし」を計算で作る。テクスチャありの粒は画像に色を掛ける。Lightingは行わない
+
+Texture2D<float4> gTexture : register(t1);
+SamplerState gSampler : register(s0);
 
 struct PixelShaderInput
 {
@@ -7,10 +10,22 @@ struct PixelShaderInput
     float2 texcoord : TEXCOORD0;
     float4 color : COLOR0;
     float shape : TEXCOORD1;
+    float useTexture : TEXCOORD2;
 };
 
 float4 main(PixelShaderInput input) : SV_TARGET
 {
+    // テクスチャありの粒：画像の色に、粒の色(寿命で変わる色・アルファ)を掛ける
+    if (input.useTexture > 0.5f)
+    {
+        float4 textured = gTexture.Sample(gSampler, input.texcoord) * input.color;
+        if (textured.a <= 0.0f)
+        {
+            discard;
+        }
+        return textured;
+    }
+
     // 中心からの距離（中心0～ふち1）
     float2 p = input.texcoord * 2.0f - 1.0f;
     float d = length(p);

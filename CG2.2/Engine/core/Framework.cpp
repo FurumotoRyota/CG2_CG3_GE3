@@ -6,6 +6,7 @@
 void Framework::Initialize()
 {
     winApp_.Initialize(L"CG2");
+    frameRate_.Initialize(60); // fixed 60 FPS
     dxCommon_.Initialize(&winApp_);
 
     input_.Initialize(&winApp_);
@@ -16,7 +17,7 @@ void Framework::Initialize()
     modelManager_.Initialize(&dxCommon_, &textureManager_);
     object3dCommon_.Initialize(&dxCommon_, &textureManager_, &modelManager_);
     spriteCommon_.Initialize(&dxCommon_, &textureManager_);
-    particleSystem_.Initialize(&dxCommon_, &srvManager_);
+    particleSystem_.Initialize(&dxCommon_, &srvManager_, &textureManager_);
     instancedPlaneCommon_.Initialize(&dxCommon_, &textureManager_, &srvManager_);
 
 #ifdef USE_IMGUI
@@ -54,6 +55,7 @@ void Framework::Finalize()
 
     audio_.Finalize();
     input_.Finalize();
+    frameRate_.Finalize();
     winApp_.Finalize();
 }
 
@@ -99,6 +101,8 @@ void Framework::Run()
         sceneManager_.Draw();
         dxCommon_.PostDraw();
 #endif
+
+        frameRate_.Update(); // wait until the frame time has passed (fixed FPS)
     }
 
     Finalize();

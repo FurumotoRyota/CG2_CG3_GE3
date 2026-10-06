@@ -25,6 +25,9 @@ public:
 
     // WAVファイルを読み込む。"fmt "/"data"以外のチャンク(LIST等)は読み飛ばす
     SoundHandle LoadWave(const std::string& filename);
+    // Media Foundationで読み込む。WAVに加えてMP3/AAC(m4a)など圧縮フォーマットも使える
+    // 読み込み時に再生用のPCMへ全て展開するので、再生は LoadWave と同じ Play / PlayOneShot でできる
+    SoundHandle LoadSound(const std::string& filename);
     void Unload(SoundHandle handle);
 
     // 最初から再生する（再生中なら作り直す）

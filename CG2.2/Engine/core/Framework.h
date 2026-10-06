@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "../base/WinApp.h"
+#include "../base/FrameRateController.h"
 #include "../base/DirectXCommon.h"
 #include "../base/SrvManager.h"
 #include "../base/TextureManager.h"
@@ -37,6 +38,7 @@ protected:
     virtual void DrawImGui() {}
 
     WinApp winApp_;
+    FrameRateController frameRate_;
     DirectXCommon dxCommon_;
     Input input_;
     Audio audio_;
