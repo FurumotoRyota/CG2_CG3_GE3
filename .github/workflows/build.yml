@@ -1,0 +1,25 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    # Windows Server 2025 with Visual Studio 2026 (the project uses toolset v145)
+    runs-on: windows-2025-vs2026
+
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Development, Release]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build (${{ matrix.configuration }} | x64)
+        run: msbuild CG2.2.slnx /m /p:Configuration=${{ matrix.configuration }} /p:Platform=x64
