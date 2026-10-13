@@ -64,8 +64,22 @@ private:
         int loadedTexIndex = 0;
     };
 
+    // 配置したライト1つぶん（ポイント / スポット）
+    struct LightSlot
+    {
+        int type = 0; // 0:ポイント 1:スポット
+        Vector4 color{ 1.0f, 1.0f, 1.0f, 1.0f };
+        Vector3 position{ 0.0f, 3.0f, 0.0f };
+        Vector3 direction{ 0.0f, -1.0f, 0.0f }; // スポットの向き
+        float intensity = 1.0f;
+        float range = 10.0f;
+        float decay = 1.0f;
+        float outerDeg = 60.0f;
+        float innerDeg = 30.0f;
+    };
+
     // Hierarchyでの選択
-    enum class SelectKind { None, Object, Sprite, Planes, Emitter, Light };
+    enum class SelectKind { None, Object, Sprite, Planes, Emitter, Light, SceneLight };
     struct Selection
     {
         SelectKind kind = SelectKind::None;
@@ -84,6 +98,9 @@ private:
     void DuplicatePlanes(int index);
     int AddEmitter(ParticlePreset preset, const Vector3& position);
     void DuplicateEmitter(int index);
+    int AddLight(int type, const Vector3& position);
+    void DuplicateLight(int index);
+    void UpdateLights(); // 配置したライトを定数バッファへ書き込む
     void RunPendingCommands();
     void DeleteSelection(); // 選択中のオブジェクト/スプライト/エミッターを削除する
     void StartPlay(); // 実行開始：今のシーンを保存してから動かす
@@ -105,6 +122,7 @@ private:
     std::vector<SpriteSlot> sprites_;
     std::vector<PlanesSlot> planes_;        // 板ポリ大量配置
     std::vector<ParticleEmitter> emitters_; // シーンに置いたパーティクルエミッター
+    std::vector<LightSlot> lights_;         // シーンに置いたポイント/スポットライト
 
     // 実行(Play)モード。false の間は編集モードで、シーンは止まっている
     bool playing_ = false;
@@ -120,6 +138,7 @@ private:
         std::vector<Item> sprites;
         std::vector<InstancedPlanes::Settings> planes;
         std::vector<ParticleEmitter> emitters;
+        std::vector<LightSlot> lights;
     };
     Snapshot snapshot_; // Play開始時のシーン（Stopで戻す）
 

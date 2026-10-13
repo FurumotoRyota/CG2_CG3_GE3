@@ -1,15 +1,31 @@
 ﻿#include "ModelLoader.h"
 
 #include <cassert>
+#include <cctype>
+#include <filesystem>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <sstream>
 #include <vector>
 
+#include "../base/StringUtility.h"
 #include "../math/Vector2.h"
 #include "../math/Vector3.h"
 #include "../math/Vector4.h"
+
+// assimp が externals/assimp に配置されている場合のみ有効になる
+#if __has_include(<assimp/Importer.hpp>)
+#define USE_ASSIMP 1
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#ifdef _DEBUG
+#pragma comment(lib, "assimp-vc143-mtd.lib")
+#else
+#pragma comment(lib, "assimp-vc143-mt.lib")
+#endif
+#endif
 
 namespace
 {
@@ -201,6 +217,150 @@ ModelData LoadObj(const std::string& directoryPath, const std::string& fileName)
     }
 
     return modelData;
+}
+
+//==================================================
+// assimpでモデルを読み込む関数
+//==================================================
+#ifdef USE_ASSIMP
+namespace
+{
+Matrix4x4 ToEngineMatrix(const aiMatrix4x4& a)
+{
+    // assimpは列ベクトル規約なので転置してエンジン(行ベクトル規約)に合わせる
+    Matrix4x4 r{};
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            r.m[i][j] = a[j][i];
+        }
+    }
+    return r;
+}
+
+Node ReadNode(const aiNode* node)
+{
+    Node result;
+    result.localMatrix = ToEngineMatrix(node->mTransformation);
+    result.name = node->mName.C_Str();
+    result.children.resize(node->mNumChildren);
+    for (unsigned i = 0; i < node->mNumChildren; ++i) {
+        result.children[i] = ReadNode(node->mChildren[i]);
+    }
+    return result;
+}
+
+// ノードを辿り、メッシュに親からの累積変換を焼き込んで追加する
+void BuildMeshes(const aiScene* scene, const aiNode* node, const aiMatrix4x4& parent, ModelData& modelData)
+{
+    const aiMatrix4x4 world = parent * node->mTransformation;
+    aiMatrix3x3 normalMatrix(world);
+    normalMatrix.Inverse().Transpose();
+
+    for (unsigned n = 0; n < node->mNumMeshes; ++n) {
+        const aiMesh* mesh = scene->mMeshes[node->mMeshes[n]];
+        if (!mesh->HasNormals()) {
+            continue;
+        }
+        MeshData meshData;
+        meshData.materialName = "mat_" + std::to_string(mesh->mMaterialIndex);
+
+        for (unsigned f = 0; f < mesh->mNumFaces; ++f) {
+            const aiFace& face = mesh->mFaces[f];
+            if (face.mNumIndices != 3) {
+                continue; // aiProcess_Triangulateで三角形のみのはず
+            }
+            for (unsigned e = 0; e < 3; ++e) {
+                const unsigned idx = face.mIndices[e];
+                aiVector3D p = world * mesh->mVertices[idx];
+                aiVector3D nrm = normalMatrix * mesh->mNormals[idx];
+                nrm.Normalize();
+                aiVector3D uv(0, 0, 0);
+                if (mesh->HasTextureCoords(0)) {
+                    uv = mesh->mTextureCoords[0][idx];
+                }
+                VertexData v{};
+                // 右手系 -> 左手系: x反転 (+ aiProcess_FlipWindingOrder)
+                v.position = { -p.x, p.y, p.z, 1.0f };
+                v.normal = { -nrm.x, nrm.y, nrm.z };
+                v.texcoord = { uv.x, uv.y };
+                meshData.vertices.push_back(v);
+            }
+        }
+        modelData.meshes.push_back(std::move(meshData));
+    }
+    for (unsigned i = 0; i < node->mNumChildren; ++i) {
+        BuildMeshes(scene, node->mChildren[i], world, modelData);
+    }
+}
+}
+#endif
+
+bool LoadModelFile(const std::string& directoryPath, const std::string& fileName, ModelData& out)
+{
+#ifdef USE_ASSIMP
+    const std::string filePath = directoryPath + "/" + fileName;
+    // fileNameにサブフォルダが含まれる場合、テクスチャはそのフォルダ基準
+    std::string baseDir = directoryPath;
+    const size_t slash = fileName.find_last_of("/\\");
+    if (slash != std::string::npos) {
+        baseDir += "/" + fileName.substr(0, slash);
+    }
+
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(filePath.c_str(),
+        aiProcess_FlipWindingOrder | aiProcess_FlipUVs | aiProcess_Triangulate | aiProcess_GenNormals);
+    if (!scene || !scene->HasMeshes()) {
+        return false;
+    }
+
+    ModelData modelData;
+
+    // マテリアル解析（Diffuse / glTFのBaseColorテクスチャ）
+    for (unsigned i = 0; i < scene->mNumMaterials; ++i) {
+        const aiMaterial* material = scene->mMaterials[i];
+        MaterialData data;
+        aiString texPath;
+        bool found = false;
+        if (material->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
+            found = material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS;
+        }
+        if (!found && material->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
+            found = material->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) == AI_SUCCESS;
+        }
+        // 埋め込みテクスチャ("*0"形式)は未対応 -> 既定テクスチャを使う
+        if (found && texPath.C_Str()[0] != '*') {
+            // 読めるテクスチャだけ採用する（見つからない/WIC非対応形式で落ちるのを防ぐ）
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            const std::string raw = texPath.C_Str();
+            const size_t s = raw.find_last_of("/\\");
+            const std::string fileOnly = (s == std::string::npos) ? raw : raw.substr(s + 1);
+            for (const std::string& candidate : { baseDir + "/" + raw, baseDir + "/" + fileOnly, directoryPath + "/" + fileOnly }) {
+                std::string ext = candidate.substr(candidate.find_last_of('.') == std::string::npos ? candidate.size() : candidate.find_last_of('.'));
+                for (char& c : ext) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
+                if (ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".bmp" && ext != ".tif" && ext != ".tiff") {
+                    continue;
+                }
+                if (fs::is_regular_file(fs::path(StringUtility::ConvertString(candidate)), ec)) {
+                    data.textureFilePath = candidate;
+                    break;
+                }
+            }
+        }
+        modelData.materials["mat_" + std::to_string(i)] = data;
+    }
+
+    modelData.rootNode = ReadNode(scene->mRootNode);
+    BuildMeshes(scene, scene->mRootNode, aiMatrix4x4(), modelData);
+    if (modelData.meshes.empty()) {
+        return false;
+    }
+    out = std::move(modelData);
+    return true;
+#else
+    (void)directoryPath; (void)fileName; (void)out;
+    return false;
+#endif
 }
 
 //==================================================

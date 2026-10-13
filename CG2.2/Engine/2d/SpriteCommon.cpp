@@ -2,6 +2,7 @@
 #include "../base/DirectXCommon.h"
 
 #include <cassert>
+#include <cstring>
 
 void SpriteCommon::Initialize(DirectXCommon* dxCommon, TextureManager* textureManager)
 {
@@ -14,6 +15,7 @@ void SpriteCommon::Initialize(DirectXCommon* dxCommon, TextureManager* textureMa
     dummyLightResource_ = dxCommon_->CreateBufferResource(sizeof(DirectionalLight));
     DirectionalLight* lightData = nullptr;
     dummyLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&lightData));
+    std::memset(lightData, 0, sizeof(DirectionalLight)); // 追加したポイントライト等も0で初期化（スプライトはライティングなし）
     lightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
     lightData->direction = { 0.0f, -1.0f, 0.0f };
     lightData->intensity = 1.0f;

@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cwctype>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -35,10 +36,11 @@ namespace
     // 拡張子（小文字）が一致するか
     bool HasExtension(const std::filesystem::path& path, std::initializer_list<const char*> extensions)
     {
-        std::string ext = path.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        // string() は日本語など ANSI に変換できない名前で例外を投げるので wstring で比較する
+        std::wstring ext = path.extension().wstring();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
         for (const char* e : extensions) {
-            if (ext == e) {
+            if (ext == std::filesystem::path(e).wstring()) {
                 return true;
             }
         }
@@ -123,7 +125,7 @@ static void CopyObjCompanions(const std::filesystem::path& objPath)
         if (key != "mtllib" || !(stream >> value)) {
             continue;
         }
-        const fs::path mtlSrc = objPath.parent_path() / fs::path(value).filename();
+        const fs::path mtlSrc = objPath.parent_path() / fs::path(StringUtility::ConvertString(value)).filename();
         CopyToResources(mtlSrc);
 
         std::ifstream mtlFile(mtlSrc);
@@ -139,7 +141,7 @@ static void CopyObjCompanions(const std::filesystem::path& objPath)
                 texName = last; // the file name is the last token
             }
             if (!texName.empty()) {
-                CopyToResources(mtlSrc.parent_path() / fs::path(texName).filename());
+                CopyToResources(mtlSrc.parent_path() / fs::path(StringUtility::ConvertString(texName)).filename());
             }
         }
     }
@@ -231,10 +233,10 @@ void GameScene::ScanResources()
         }
         const std::filesystem::path& path = entry.path();
         if (HasExtension(path, { ".obj" })) {
-            foundObjs.push_back(path.filename().string());
+            foundObjs.push_back(StringUtility::ConvertString(path.filename().wstring()));
         }
         else if (HasExtension(path, { ".png", ".jpg", ".jpeg", ".bmp" })) {
-            foundTextures.push_back("resources/" + path.filename().string());
+            foundTextures.push_back("resources/" + StringUtility::ConvertString(path.filename().wstring()));
         }
     }
     std::sort(foundObjs.begin(), foundObjs.end());
@@ -360,6 +362,10 @@ void GameScene::DuplicateObject(int index)
     const Transform transform = src.GetTransform();
     const Transform uvTransform = src.GetUvTransform();
     const int lightingMode = src.GetMaterial()->lightingMode;
+    const int specularMode = src.GetMaterial()->specularMode;
+    const float shininess = src.GetMaterial()->shininess;
+    const float roughness = src.GetMaterial()->roughness;
+    const float metallic = src.GetMaterial()->metallic;
     const BlendMode blendMode = src.GetBlendMode();
     const float alphaCutoff = src.GetMaterial()->alphaCutoff;
     const bool doubleSided = src.IsDoubleSided();
@@ -373,6 +379,10 @@ void GameScene::DuplicateObject(int index)
     dst.GetUvTransform() = uvTransform;
     dst.GetMaterial()->color = color;
     dst.GetMaterial()->lightingMode = lightingMode;
+    dst.GetMaterial()->specularMode = specularMode;
+    dst.GetMaterial()->shininess = shininess;
+    dst.GetMaterial()->roughness = roughness;
+    dst.GetMaterial()->metallic = metallic;
     dst.SetBlendMode(blendMode);
     dst.SetDoubleSided(doubleSided);
     dst.GetMaterial()->alphaCutoff = alphaCutoff;
@@ -461,6 +471,50 @@ void GameScene::DuplicateEmitter(int index)
     selection_ = { SelectKind::Emitter, static_cast<int>(emitters_.size()) - 1 };
 }
 
+int GameScene::AddLight(int type, const Vector3& position)
+{
+    LightSlot light;
+    light.type = type;
+    light.position = position;
+    lights_.push_back(light);
+    return static_cast<int>(lights_.size()) - 1;
+}
+
+void GameScene::DuplicateLight(int index)
+{
+    if (index < 0 || index >= static_cast<int>(lights_.size())) {
+        return;
+    }
+    LightSlot copy = lights_[index];
+    copy.position.x += 1.0f; // 重ならないように少しずらす
+    lights_.push_back(copy);
+    selection_ = { SelectKind::SceneLight, static_cast<int>(lights_.size()) - 1 };
+}
+
+// 配置したライトを定数バッファへ書き込む（上限 kMaxLights 個）
+void GameScene::UpdateLights()
+{
+    if (!directionalLight_) {
+        return;
+    }
+    const float kDegToRad = 3.14159265f / 180.0f;
+    const int count = (std::min)(static_cast<int>(lights_.size()), kMaxLights);
+    directionalLight_->lightCount = count;
+    for (int i = 0; i < count; ++i) {
+        const LightSlot& s = lights_[i];
+        LightData& d = directionalLight_->lights[i];
+        d.color = s.color;
+        d.position = s.position;
+        d.intensity = s.intensity;
+        d.direction = s.direction;
+        d.range = (std::max)(s.range, 0.01f);
+        d.decay = s.decay;
+        d.cosAngle = std::cos(s.outerDeg * kDegToRad);
+        d.cosFalloffStart = std::cos(s.innerDeg * kDegToRad);
+        d.type = s.type;
+    }
+}
+
 // 選択中の項目を削除する（編集モードのみ）
 void GameScene::DeleteSelection()
 {
@@ -479,6 +533,9 @@ void GameScene::DeleteSelection()
     }
     else if (selection_.kind == SelectKind::Emitter && index < static_cast<int>(emitters_.size())) {
         emitters_.erase(emitters_.begin() + index);
+    }
+    else if (selection_.kind == SelectKind::SceneLight && index < static_cast<int>(lights_.size())) {
+        lights_.erase(lights_.begin() + index);
     }
     else {
         return;
@@ -515,6 +572,7 @@ void GameScene::StartPlay()
         snapshot_.planes.push_back(slot.planes->GetSettings());
     }
     snapshot_.emitters = emitters_;
+    snapshot_.lights = lights_;
 
     ctx_->particleSystem->Clear(); // 編集中のプレビューの粒は消す
     konamiCommand_ = KonamiCommand{};
@@ -553,6 +611,9 @@ void GameScene::StopPlay()
     }
     if (emitters_.size() == snapshot_.emitters.size()) {
         emitters_ = snapshot_.emitters;
+    }
+    if (lights_.size() == snapshot_.lights.size()) {
+        lights_ = snapshot_.lights;
     }
 
     ctx_->particleSystem->Clear(); // 実行中の粒を消す
@@ -637,6 +698,7 @@ void GameScene::Update()
         UpdateViewportInteraction();
     }
     UpdateObjects();
+    UpdateLights();
 
     // 板ポリ大量配置：全ての板のWVPを書き込む
     for (auto& slot : planes_) {
@@ -694,7 +756,7 @@ void GameScene::UpdateCameraControl()
     // 同じ速度でカメラを動かす。左端=A、右端=D、上端=Space(上)、下端=LShift(下)
     float panRight = 0.0f;
     float panUp = 0.0f;
-    if (dragMode_ == DragMode::Move && (selection_.kind == SelectKind::Object || selection_.kind == SelectKind::Planes || selection_.kind == SelectKind::Emitter) && vp.down) {
+    if (dragMode_ == DragMode::Move && (selection_.kind == SelectKind::Object || selection_.kind == SelectKind::Planes || selection_.kind == SelectKind::Emitter || selection_.kind == SelectKind::SceneLight) && vp.down) {
         constexpr float kEdgeMargin = 20.0f; // 端からこの距離(ゲーム画面px)以内で反応
         if (vp.mouse.x <= kEdgeMargin) panRight -= 1.0f;
         if (vp.mouse.x >= WinApp::kGameWidth - kEdgeMargin) panRight += 1.0f;
@@ -862,6 +924,42 @@ void GameScene::UpdateViewportInteraction()
                 }
             }
 
+            // 配置したライトも、目印の近くをクリックしたら選ぶ
+            if (selection_.kind == SelectKind::None) {
+                constexpr float kPickRadius = 16.0f;
+                float bestDistance2 = kPickRadius * kPickRadius;
+                int bestLight = -1;
+                for (int i = 0; i < static_cast<int>(lights_.size()); ++i) {
+                    Vector2 screen{};
+                    if (!Picking::WorldToScreen(lights_[i].position, view, projection, screen)) {
+                        continue;
+                    }
+                    const float dx = vp.mouse.x - screen.x;
+                    const float dy = vp.mouse.y - screen.y;
+                    const float distance2 = dx * dx + dy * dy;
+                    if (distance2 <= bestDistance2) {
+                        bestDistance2 = distance2;
+                        bestLight = i;
+                    }
+                }
+
+                if (bestLight >= 0) {
+                    selection_ = { SelectKind::SceneLight, bestLight };
+
+                    const Matrix4x4 cameraWorld = Inverse(view);
+                    const Vector3 cameraForward = { cameraWorld.m[2][0], cameraWorld.m[2][1], cameraWorld.m[2][2] };
+                    const Vector3 position = lights_[bestLight].position;
+                    dragPlaneNormal_ = vp.shift ? Vector3{ 0.0f, 1.0f, 0.0f } : cameraForward;
+                    dragPlanePoint_ = position;
+
+                    Vector3 hit{};
+                    if (Picking::RayIntersectsPlane(ray, dragPlanePoint_, dragPlaneNormal_, hit)) {
+                        dragObjectOffset_ = position.Subtract(hit);
+                        dragMode_ = DragMode::Move;
+                    }
+                }
+            }
+
             // 板ポリ大量配置：どれか1枚でも当たれば選ぶ。ただし3Dオブジェクトのほうが手前ならそちらを優先する
             if (selection_.kind == SelectKind::None) {
                 const Vector3 planeMin = { -0.5f, -0.5f, -0.02f };
@@ -986,6 +1084,12 @@ void GameScene::UpdateViewportInteraction()
             Vector3 hit{};
             if (Picking::RayIntersectsPlane(ray, dragPlanePoint_, dragPlaneNormal_, hit)) {
                 emitters_[selection_.index].position = hit.Add(dragObjectOffset_);
+            }
+        }
+        else if (selection_.kind == SelectKind::SceneLight && selection_.index < static_cast<int>(lights_.size())) {
+            Vector3 hit{};
+            if (Picking::RayIntersectsPlane(ray, dragPlanePoint_, dragPlaneNormal_, hit)) {
+                lights_[selection_.index].position = hit.Add(dragObjectOffset_);
             }
         }
         else {
@@ -1216,6 +1320,30 @@ void GameScene::DrawSelectionOutline()
             }
         }
     }
+
+    // 配置したライトの目印。ポイント=四角、スポット=三角。選択中は大きく描き、スポットは向きの線も出す
+    for (int i = 0; i < static_cast<int>(lights_.size()); ++i) {
+        Vector2 c{};
+        if (!Picking::WorldToScreen(lights_[i].position, view, projection, c)) {
+            continue;
+        }
+        const bool selected = selection_.kind == SelectKind::SceneLight && selection_.index == i;
+        const float r = selected ? 11.0f : 7.0f;
+        if (lights_[i].type == 0) {
+            const Vector2 square[4] = { { c.x - r, c.y - r }, { c.x + r, c.y - r }, { c.x + r, c.y + r }, { c.x - r, c.y + r } };
+            EditorLayout::DrawViewportOverlay(square, 4, true);
+        }
+        else {
+            const Vector2 triangle[3] = { { c.x, c.y - r }, { c.x + r, c.y + r }, { c.x - r, c.y + r } };
+            EditorLayout::DrawViewportOverlay(triangle, 3, true);
+            Vector2 tip{};
+            const Vector3 dir = lights_[i].direction.Normalize();
+            if (Picking::WorldToScreen(lights_[i].position.Add(dir.Multiply(2.0f)), view, projection, tip)) {
+                const Vector2 line[2] = { c, tip };
+                EditorLayout::DrawViewportOverlay(line, 2, false);
+            }
+        }
+    }
 #endif // USE_IMGUI
 }
 
@@ -1419,6 +1547,19 @@ void GameScene::DrawImGui()
             }
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("ライトを追加")) {
+            if (ImGui::MenuItem("ポイントライト")) {
+                pendingCommands_.push_back([this]() {
+                    selection_ = { SelectKind::SceneLight, AddLight(0, { 0.0f, 3.0f, 0.0f }) };
+                    });
+            }
+            if (ImGui::MenuItem("スポットライト")) {
+                pendingCommands_.push_back([this]() {
+                    selection_ = { SelectKind::SceneLight, AddLight(1, { 0.0f, 4.0f, 0.0f }) };
+                    });
+            }
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("スプライトを追加")) {
             for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
                 if (ImGui::MenuItem(textureFileList_[i].c_str())) {
@@ -1586,6 +1727,34 @@ void GameScene::DrawImGui()
         ImGui::PopID();
     }
 
+    // 配置したライト（ポイント / スポット）
+    for (int i = 0; i < static_cast<int>(lights_.size()); ++i) {
+        const std::string label = std::format("[{} {}]", lights_[i].type == 0 ? "ポイントライト" : "スポットライト", i);
+        const bool selected = selection_.kind == SelectKind::SceneLight && selection_.index == i;
+        ImGui::PushID(3000 + i);
+        if (ImGui::Selectable(label.c_str(), selected)) {
+            selection_ = { SelectKind::SceneLight, i };
+        }
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            selection_ = { SelectKind::SceneLight, i };
+        }
+        if (ImGui::BeginPopupContextItem("LightContext")) {
+            if (ImGui::MenuItem("複製", nullptr, false, !playing_)) {
+                pendingCommands_.push_back([this, i]() { DuplicateLight(i); });
+            }
+            if (ImGui::MenuItem("削除", nullptr, false, !playing_)) {
+                pendingCommands_.push_back([this, i]() {
+                    if (i < static_cast<int>(lights_.size())) {
+                        lights_.erase(lights_.begin() + i);
+                        selection_ = {};
+                    }
+                    });
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+    }
+
     // ライト（削除不可）
     if (ImGui::Selectable("ディレクショナルライト", selection_.kind == SelectKind::Light)) {
         selection_ = { SelectKind::Light, 0 };
@@ -1596,7 +1765,7 @@ void GameScene::DrawImGui()
     ImGui::Text("パーティクル数: %zu / %u", ctx_->particleSystem->GetCount(), ParticleSystem::kMaxParticles);
     ImGui::Text("再生: エミッターが動く / 停止: シーンが元に戻る");
     ImGui::Text("ビューポート: クリックで選択、ドラッグで移動");
-    ImGui::Text("エミッターはひし形のマーク(クリックで選択)");
+    ImGui::Text("エミッターはひし形、ポイントライトは四角、スポットは三角のマーク");
     ImGui::Text("インスタンス平面: 1グループ = N枚の平面");
     ImGui::Text("3Dを画面端までドラッグ: カメラが追従");
     ImGui::Checkbox("位置マーカーを表示", &showMarkers_);
@@ -1623,7 +1792,7 @@ void GameScene::DrawImGui()
     EditorLayout::Begin("インスペクター", EditorLayout::Panel::Inspector);
 
     // 選択中の項目の削除ボタン（編集モードのみ）。Deleteキー / Hierarchyの右クリックでも削除できる
-    if (!playing_ && (selection_.kind == SelectKind::Object || selection_.kind == SelectKind::Sprite || selection_.kind == SelectKind::Planes || selection_.kind == SelectKind::Emitter)) {
+    if (!playing_ && (selection_.kind == SelectKind::Object || selection_.kind == SelectKind::Sprite || selection_.kind == SelectKind::Planes || selection_.kind == SelectKind::Emitter || selection_.kind == SelectKind::SceneLight)) {
         if (ImGui::Button("削除 (Delキー)")) {
             pendingCommands_.push_back([this]() { DeleteSelection(); });
         }
@@ -1647,6 +1816,15 @@ void GameScene::DrawImGui()
         ImGui::ColorEdit4("色", &object.GetMaterial()->color.x);
         const char* lightingModes[] = { "なし", "ランバート", "ハーフランバート" };
         ImGui::Combo("ライティング", &object.GetMaterial()->lightingMode, lightingModes, IM_ARRAYSIZE(lightingModes));
+        const char* specularModes[] = { "なし", "Phong", "Blinn-Phong", "PBR (GGX)" };
+        ImGui::Combo("鏡面反射", &object.GetMaterial()->specularMode, specularModes, IM_ARRAYSIZE(specularModes));
+        if (object.GetMaterial()->specularMode == 3) {
+            ImGui::SliderFloat("粗さ (roughness)", &object.GetMaterial()->roughness, 0.0f, 1.0f);
+            ImGui::SliderFloat("金属度 (metallic)", &object.GetMaterial()->metallic, 0.0f, 1.0f);
+        }
+        else if (object.GetMaterial()->specularMode != 0) {
+            ImGui::SliderFloat("光沢(鋭さ)", &object.GetMaterial()->shininess, 1.0f, 256.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+        }
         int blendMode = static_cast<int>(object.GetBlendMode());
         if (ImGui::Combo("ブレンドモード", &blendMode, kBlendModeNames, kBlendModeCount)) {
             object.SetBlendMode(static_cast<BlendMode>(blendMode));
@@ -1814,6 +1992,32 @@ void GameScene::DrawImGui()
             directionalLight_->direction = Normalize(directionalLight_->direction);
         }
         ImGui::DragFloat("強さ", &directionalLight_->intensity, 0.01f);
+        ImGui::Separator();
+        ImGui::TextDisabled("ポイント/スポットライトは Hierarchy の「+ 追加」→「ライトを追加」");
+    }
+    else if (selection_.kind == SelectKind::SceneLight && selection_.index < static_cast<int>(lights_.size())) {
+        LightSlot& l = lights_[selection_.index];
+        ImGui::Text(l.type == 0 ? "ポイントライト [%d]" : "スポットライト [%d]", selection_.index);
+        ImGui::Separator();
+        const char* types[] = { "ポイント", "スポット" };
+        ImGui::Combo("種類", &l.type, types, IM_ARRAYSIZE(types));
+        ImGui::ColorEdit4("色", &l.color.x);
+        ImGui::DragFloat3("位置", &l.position.x, 0.05f);
+        ImGui::DragFloat("強さ (0で消灯)", &l.intensity, 0.01f, 0.0f, 100.0f);
+        ImGui::DragFloat("届く距離", &l.range, 0.05f, 0.1f, 1000.0f);
+        ImGui::DragFloat("距離の減衰", &l.decay, 0.01f, 0.01f, 10.0f);
+        if (l.type == 1) {
+            if (ImGui::DragFloat3("向き", &l.direction.x, 0.01f)) {
+                l.direction = Normalize(l.direction);
+            }
+            if (ImGui::SliderFloat("外側の角度", &l.outerDeg, 1.0f, 89.0f)) {
+                l.innerDeg = (std::min)(l.innerDeg, l.outerDeg - 0.5f);
+            }
+            if (ImGui::SliderFloat("内側の角度 (ここから減衰)", &l.innerDeg, 0.5f, 88.5f)) {
+                l.innerDeg = (std::min)(l.innerDeg, l.outerDeg - 0.5f);
+            }
+        }
+        ImGui::TextDisabled("ビューポートの目印をドラッグして移動 (Shift: 水平)");
     }
     else {
         ImGui::Text("何も選択されていません");

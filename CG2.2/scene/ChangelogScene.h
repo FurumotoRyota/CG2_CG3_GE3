@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "scene/Scene.h"
 #include "editor/EditorLayout.h"
 
@@ -48,6 +48,10 @@ private:
 
     // Newest first
     static constexpr Entry kEntries[] = {
+        { "最新: ライティング強化",
+          "- 鏡面反射: Phong / Blinn-Phong (オブジェクトのインスペクター。光沢で鋭さを調整)\n"
+          "- 非均一スケールでも法線が正しく向く (法線を逆転置行列で変換)\n"
+          "- ポイントライト / スポットライト (ライトを選択して「強さ」を上げると点灯。距離の減衰・円錐の角度を調整可)" },
         { "最新: ドラッグ&ドロップ / 動画",
           "- エクスプローラーからドロップ: 画像(スプライト) / .obj(+.mtl・テクスチャ) / 動画(.mp4 .m4v .mov .wmv)\n"
           "- 動画は元の場所から再生 (コピーしない)。音つき。インスペクターで再生/一時停止/最初から/ループ/音量\n"

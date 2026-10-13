@@ -35,6 +35,7 @@ void Sprite::Initialize(SpriteCommon* common, const std::string& texturePath, co
     wvpResource_->Map(0, nullptr, reinterpret_cast<void**>(&wvpData_));
     wvpData_->WVP = Matrix4x4::MakeIdentity4x4();
     wvpData_->World = Matrix4x4::MakeIdentity4x4();
+    wvpData_->WorldInverseTranspose = Matrix4x4::MakeIdentity4x4();
 }
 
 void Sprite::SetTexture(const std::string& texturePath)

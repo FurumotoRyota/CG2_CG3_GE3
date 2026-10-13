@@ -18,9 +18,17 @@ Model* ModelManager::Load(const std::string& modelName)
         return it->second.get();
     }
 
-    ModelData modelData = (modelName == ModelLoader::kSphereTag)
-        ? ModelLoader::GenerateSphere(16)
-        : ModelLoader::LoadObj("resources", modelName);
+    ModelData modelData;
+    if (modelName == ModelLoader::kSphereTag) {
+        modelData = ModelLoader::GenerateSphere(16);
+    }
+    else if (ModelLoader::LoadModelFile("resources", modelName, modelData)) {
+        // assimpで読み込めた (obj / gltf / glb / fbx ...)
+    }
+    else {
+        // assimp未配置・読み込み失敗時は従来のobjローダーで読む
+        modelData = ModelLoader::LoadObj("resources", modelName);
+    }
 
     auto model = std::make_unique<Model>();
     model->Initialize(dxCommon_, textureManager_, modelData);

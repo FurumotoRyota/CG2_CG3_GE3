@@ -15,6 +15,10 @@ namespace ModelLoader
     // objファイルを読み込む（mtlのマルチマテリアル、o/g/usemtlによるマルチメッシュに対応）
     ModelData LoadObj(const std::string& directoryPath, const std::string& fileName);
 
+    // assimpでモデルを読み込む（obj / gltf / glb / fbx など）。
+    // externals/assimp が未配置の場合は ok=false を返す
+    bool LoadModelFile(const std::string& directoryPath, const std::string& fileName, ModelData& out);
+
     // 球を頂点計算で生成する。kSubdivision: 緯度・経度それぞれの分割数
     ModelData GenerateSphere(uint32_t kSubdivision);
 }

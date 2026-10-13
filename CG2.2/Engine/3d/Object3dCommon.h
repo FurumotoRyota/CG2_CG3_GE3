@@ -4,6 +4,7 @@
 
 #include "../base/BasicPipeline.h"
 #include "../base/ShaderTypes.h"
+#include "../math/Matrix4x4.h"
 
 class DirectXCommon;
 class TextureManager;
@@ -27,7 +28,10 @@ public:
     TextureManager* GetTextureManager() const { return textureManager_; }
     ModelManager* GetModelManager() const { return modelManager_; }
 
-    // ImGuiなどから光源を編集する用
+    // カメラ位置をビュー行列から求めて光源バッファへ書く（鏡面反射の視線ベクトル用。Object3d::Updateが呼ぶ）
+    void SetCameraFromView(const Matrix4x4& viewMatrix);
+
+    // ImGuiなどから光源を編集する用（ポイントライト・スポットライトも同じ構造体に入っている）
     DirectionalLight* GetDirectionalLight() const { return directionalLightData_; }
 
 private:
