@@ -19,7 +19,7 @@ enum class ParticlePreset
 };
 inline constexpr int kParticlePresetCount = static_cast<int>(ParticlePreset::Count);
 inline constexpr const char* kParticlePresetNames[kParticlePresetCount] = {
-    "Fire", "Explosion", "Fireworks", "Snow", "Sparkle", "Rainbow"
+    "炎", "爆発", "花火", "雪", "キラキラ", "虹色"
 };
 
 // 発生のしかた
@@ -28,7 +28,7 @@ enum class EmitMode
     Continuous, // Rate(個/秒)で出し続ける
     Burst       // Interval秒ごとに Burst Count 個を一度に出す（Interval=0なら Play ボタンのときだけ）
 };
-inline constexpr const char* kEmitModeNames[2] = { "Continuous", "Burst" };
+inline constexpr const char* kEmitModeNames[2] = { "連続", "バースト" };
 
 // 粒の形（ポリゴンは四角のまま、ピクセルシェーダーで形を作る）
 enum class ParticleShape
@@ -37,7 +37,7 @@ enum class ParticleShape
     Circle,     // くっきりした丸
     Square      // 四角
 };
-inline constexpr const char* kParticleShapeNames[3] = { "Soft Circle", "Circle", "Square" };
+inline constexpr const char* kParticleShapeNames[3] = { "ぼかした丸", "丸", "四角" };
 
 /// <summary>
 /// パーティクルエミッター1つぶんの設定（シーンに置く項目）。描画・粒の更新は ParticleSystem が行う
@@ -78,6 +78,7 @@ struct ParticleEmitter
     bool rainbow = false;        // true なら粒ごとにランダムな色相（RGBは無視。アルファだけ使う）
     ParticleShape shape = ParticleShape::SoftCircle;
     std::string texturePath;     // 空なら上の形(shape)で描く。ファイルを指定すると、その画像を粒に貼る
+    std::string sparkTexturePath; // 花火の火花に貼る画像。空ならぼかした丸で描く
     bool additive = true;        // true:加算合成(光る) false:通常のαブレンド
 
     // 花火：発生した粒(ロケット)が消えるとき、その場で火花に弾ける

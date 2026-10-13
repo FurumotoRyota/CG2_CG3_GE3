@@ -364,3 +364,10 @@ FodyWeavers.xsd
 
 # Unified build output (set in Common.props)
 build/
+
+# Video files (large; keep them out of the repository)
+resources/videos/
+*.mp4
+*.mov
+*.m4v
+*.wmv

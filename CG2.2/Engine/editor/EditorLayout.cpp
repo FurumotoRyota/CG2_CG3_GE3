@@ -2,6 +2,7 @@
 
 #ifdef USE_IMGUI
 #include <algorithm>
+#include <cmath>
 
 #include "../base/WinApp.h"
 #include "imgui/imgui.h"
@@ -58,7 +59,7 @@ namespace EditorLayout
             { kLeftWidth, top },
             { display.x - kLeftWidth - kRightWidth, display.y - top - kBottomHeight });
 
-        ImGui::Begin("Viewport", nullptr,
+        ImGui::Begin("ビューポート", nullptr,
             kPanelFlags | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
         // パネルに収まる最大サイズをアスペクト比を保って求め、中央に置く
@@ -90,6 +91,8 @@ namespace EditorLayout
         g_input.shift = io.KeyShift;
         g_input.rightClicked = g_input.valid && hovered && ImGui::IsMouseClicked(1);
         g_input.rightDown = g_input.valid && ImGui::IsMouseDown(1);
+        g_input.middleClicked = g_input.valid && hovered && ImGui::IsMouseClicked(2);
+        g_input.middleDown = g_input.valid && ImGui::IsMouseDown(2);
         g_input.mouseDelta = { io.MouseDelta.x, io.MouseDelta.y };
         g_input.wheel = hovered ? io.MouseWheel : 0.0f;
 
@@ -141,6 +144,60 @@ namespace EditorLayout
             const ImVec2 center = { g_imageMin.x + points[i].x * scaleX, g_imageMin.y + points[i].y * scaleY };
             drawList->AddRectFilled({ center.x - kHalf, center.y - kHalf }, { center.x + kHalf, center.y + kHalf }, IM_COL32(255, 255, 255, 255));
             drawList->AddRect({ center.x - kHalf, center.y - kHalf }, { center.x + kHalf, center.y + kHalf }, IM_COL32(255, 200, 0, 255), 0.0f, 0, 2.0f);
+        }
+        drawList->PopClipRect();
+    }
+
+    void DrawViewportMarker(const Vector2& position, const char* label, unsigned int color, bool selected)
+    {
+        if (!g_input.valid) {
+            return;
+        }
+        const float scaleX = (g_imageMax.x - g_imageMin.x) / WinApp::kGameWidth;
+        const float scaleY = (g_imageMax.y - g_imageMin.y) / WinApp::kGameHeight;
+        ImVec2 p = { g_imageMin.x + position.x * scaleX, g_imageMin.y + position.y * scaleY };
+
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        drawList->PushClipRect(g_imageMin, g_imageMax, true);
+
+        constexpr float kMargin = 14.0f;
+        const bool inside = p.x >= g_imageMin.x && p.x <= g_imageMax.x && p.y >= g_imageMin.y && p.y <= g_imageMax.y;
+        const float thickness = selected ? 3.0f : 1.5f;
+        const ImU32 shadow = IM_COL32(0, 0, 0, 200);
+
+        if (inside) {
+            const float r = selected ? 9.0f : 6.0f;
+            drawList->AddCircle(p, r + 1.0f, shadow, 16, thickness + 1.5f);
+            drawList->AddCircle(p, r, color, 16, thickness);
+            drawList->AddLine({ p.x - r - 4.0f, p.y }, { p.x + r + 4.0f, p.y }, color, thickness);
+            drawList->AddLine({ p.x, p.y - r - 4.0f }, { p.x, p.y + r + 4.0f }, color, thickness);
+            if (label && label[0] != '\0') {
+                const ImVec2 textPos = { p.x + r + 6.0f, p.y - r - 2.0f };
+                const ImVec2 size = ImGui::CalcTextSize(label);
+                drawList->AddRectFilled({ textPos.x - 2.0f, textPos.y - 1.0f }, { textPos.x + size.x + 2.0f, textPos.y + size.y + 1.0f }, IM_COL32(0, 0, 0, 160));
+                drawList->AddText(textPos, color, label);
+            }
+        }
+        else {
+            // Off-screen: clamp to the edge and draw a triangle pointing toward the real position
+            const ImVec2 center = { (g_imageMin.x + g_imageMax.x) * 0.5f, (g_imageMin.y + g_imageMax.y) * 0.5f };
+            ImVec2 edge = {
+                p.x < g_imageMin.x + kMargin ? g_imageMin.x + kMargin : (p.x > g_imageMax.x - kMargin ? g_imageMax.x - kMargin : p.x),
+                p.y < g_imageMin.y + kMargin ? g_imageMin.y + kMargin : (p.y > g_imageMax.y - kMargin ? g_imageMax.y - kMargin : p.y)
+            };
+            float dx = p.x - center.x;
+            float dy = p.y - center.y;
+            const float len = std::sqrt(dx * dx + dy * dy);
+            if (len > 0.0001f) {
+                dx /= len;
+                dy /= len;
+            }
+            const float s = selected ? 10.0f : 7.0f;
+            const ImVec2 tip = { edge.x + dx * s, edge.y + dy * s };
+            const ImVec2 left = { edge.x - dx * s - dy * s * 0.7f, edge.y - dy * s + dx * s * 0.7f };
+            const ImVec2 right = { edge.x - dx * s + dy * s * 0.7f, edge.y - dy * s - dx * s * 0.7f };
+            drawList->AddTriangleFilled(tip, left, right, color);
+            drawList->AddTriangle(tip, left, right, shadow, 1.5f);
         }
         drawList->PopClipRect();
     }

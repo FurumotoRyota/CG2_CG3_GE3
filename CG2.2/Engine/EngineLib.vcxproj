@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -254,6 +254,7 @@
     <ClCompile Include="3d\Object3d.cpp" />
     <ClCompile Include="3d\Object3dCommon.cpp" />
     <ClCompile Include="audio\Audio.cpp" />
+    <ClCompile Include="video\VideoPlayer.cpp" />
     <ClCompile Include="base\BasicPipeline.cpp" />
     <ClCompile Include="base\CrashHandler.cpp" />
     <ClCompile Include="base\DirectXCommon.cpp" />
@@ -286,6 +287,7 @@
     <ClInclude Include="3d\Object3dCommon.h" />
     <ClInclude Include="3d\VertexData.h" />
     <ClInclude Include="audio\Audio.h" />
+    <ClInclude Include="video\VideoPlayer.h" />
     <ClInclude Include="base\BasicPipeline.h" />
     <ClInclude Include="base\BlendMode.h" />
     <ClInclude Include="base\CrashHandler.h" />

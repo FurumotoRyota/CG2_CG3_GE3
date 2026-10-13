@@ -39,6 +39,10 @@ public:
     BlendMode GetBlendMode() const { return blendMode_; }
     void SetBlendMode(BlendMode mode) { blendMode_ = mode; }
 
+    // Use a texture that is not managed by TextureManager (e.g. a video frame) for the whole model
+    void SetExternalTexture(D3D12_GPU_DESCRIPTOR_HANDLE srvHandle) { externalSrv_ = srvHandle; useExternalTexture_ = true; }
+    void ClearExternalTexture() { useExternalTexture_ = false; }
+
     // 両面描画（裏面も描く）。薄い板・フェンスなど向け。既定はオフ
     bool IsDoubleSided() const { return doubleSided_; }
     void SetDoubleSided(bool doubleSided) { doubleSided_ = doubleSided; }
@@ -49,6 +53,8 @@ private:
     std::string modelName_;
     BlendMode blendMode_ = BlendMode::None; // 既定は不透明（混ぜない）
     bool doubleSided_ = false;
+    bool useExternalTexture_ = false;
+    D3D12_GPU_DESCRIPTOR_HANDLE externalSrv_{};
 
     Transform transform_{ {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
     Transform uvTransform_{ {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };

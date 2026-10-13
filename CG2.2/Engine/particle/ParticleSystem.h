@@ -65,6 +65,7 @@ private:
         bool rocket = false;
         int sparkCount = 0;
         float sparkHue = 0.0f;
+        int32_t sparkTexture = -1; // 火花に使うテクスチャ(-1ならぼかした丸)
     };
 
     // GPUに渡す1パーティクルぶんのデータ（HLSL側の ParticleForGPU と同じ並び）

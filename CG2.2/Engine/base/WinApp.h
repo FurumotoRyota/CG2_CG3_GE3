@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include <Windows.h>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 /// <summary>
 /// ウィンドウ生成・メッセージ処理・COM初期化を担当する
@@ -23,6 +25,9 @@ public:
 #endif
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+    // Files dropped onto the window since the last call (full paths). The list is cleared on return.
+    static std::vector<std::wstring> TakeDroppedFiles();
 
     void Initialize(const wchar_t* title = L"CG2");
     void Finalize();

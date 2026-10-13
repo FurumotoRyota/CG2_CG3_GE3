@@ -295,6 +295,9 @@ void ParticleSystem::SpawnFromEmitter(const ParticleEmitter& e)
         p.rocket = true;
         p.sparkCount = e.sparkCount;
         p.sparkHue = Random(0.0f, 360.0f);
+        if (!e.sparkTexturePath.empty()) {
+            p.sparkTexture = static_cast<int32_t>(textureManager_->Load(e.sparkTexturePath));
+        }
     }
 
     particles_.push_back(p);
@@ -313,6 +316,7 @@ void ParticleSystem::SpawnSparks(const Particle& rocket, std::vector<Particle>& 
         s.gravity = 3.0f;
         s.drag = 1.2f;
         s.shape = ParticleShape::SoftCircle;
+        s.texture = rocket.sparkTexture;
         s.additive = true;
 
         // 1発の花火は近い色でそろえる（色相±25度）

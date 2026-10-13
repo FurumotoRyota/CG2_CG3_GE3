@@ -143,6 +143,7 @@
     <ClInclude Include="core\Game.h" />
     <ClInclude Include="game\GameObject.h" />
     <ClInclude Include="game\SpinningObject.h" />
+    <ClInclude Include="scene\ChangelogScene.h" />
     <ClInclude Include="scene\GameScene.h" />
     <ClInclude Include="scene\TitleScene.h" />
   </ItemGroup>

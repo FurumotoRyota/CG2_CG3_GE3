@@ -43,6 +43,9 @@ public:
 
     bool IsPlaying(SoundHandle handle) const;
 
+    // For classes that stream their own audio (VideoPlayer)
+    IXAudio2* GetXAudio2() const { return xAudio2_.Get(); }
+
 private:
     struct Sound
     {

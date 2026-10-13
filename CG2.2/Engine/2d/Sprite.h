@@ -37,6 +37,9 @@ public:
     // Show the whole texture again
     void ResetTextureRect();
 
+    // Use a texture that is not managed by TextureManager (e.g. a video frame). SetTexture() switches back.
+    void SetExternalTexture(D3D12_GPU_DESCRIPTOR_HANDLE srvHandle);
+
     // Size of the sprite on screen (pixels)
     void SetSize(const Vector2& size);
     const Vector2& GetSize() const { return size_; }
@@ -50,6 +53,8 @@ private:
 
     SpriteCommon* common_ = nullptr;
     TextureManager::TextureHandle textureHandle_ = 0;
+    bool useExternalTexture_ = false;
+    D3D12_GPU_DESCRIPTOR_HANDLE externalSrv_{};
     BlendMode blendMode_ = BlendMode::Normal; // 既定は通常のαブレンド（透過PNGがそのまま透ける）
 
     Transform transform_{ {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };

@@ -17,8 +17,8 @@ void Game::DrawImGui()
 {
 #ifdef USE_IMGUI
     if (ImGui::BeginMainMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Exit")) {
+        if (ImGui::BeginMenu("ファイル")) {
+            if (ImGui::MenuItem("終了")) {
                 PostQuitMessage(0);
             }
             ImGui::EndMenu();

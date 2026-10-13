@@ -40,7 +40,15 @@ void Sprite::Initialize(SpriteCommon* common, const std::string& texturePath, co
 void Sprite::SetTexture(const std::string& texturePath)
 {
     textureHandle_ = common_->GetTextureManager()->Load(texturePath);
+    useExternalTexture_ = false;
     ResetTextureRect(); // a different texture has a different size, so show all of it
+}
+
+void Sprite::SetExternalTexture(D3D12_GPU_DESCRIPTOR_HANDLE srvHandle)
+{
+    externalSrv_ = srvHandle;
+    useExternalTexture_ = true;
+    ResetTextureRect();
 }
 
 void Sprite::SetTextureRect(const Vector2& leftTop, const Vector2& rectSize)
@@ -125,6 +133,7 @@ void Sprite::Draw()
     commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
     commandList->SetGraphicsRootConstantBufferView(BasicPipeline::kRootTransform, wvpResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootDescriptorTable(
-        BasicPipeline::kRootTexture, common_->GetTextureManager()->GetSrvHandleGPU(textureHandle_));
+        BasicPipeline::kRootTexture,
+        useExternalTexture_ ? externalSrv_ : common_->GetTextureManager()->GetSrvHandleGPU(textureHandle_));
     commandList->DrawInstanced(6, 1, 0, 0);
 }

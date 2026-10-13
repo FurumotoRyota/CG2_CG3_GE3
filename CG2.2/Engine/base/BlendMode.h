@@ -24,5 +24,5 @@ inline constexpr int kBlendModeCount = static_cast<int>(BlendMode::Count);
 
 // ImGuiのComboなどに渡す表示名（BlendModeの並びと同じ順）
 inline constexpr const char* kBlendModeNames[kBlendModeCount] = {
-    "None", "Normal", "Add", "Subtract", "Multiply", "Screen"
+    "なし", "通常", "加算", "減算", "乗算", "スクリーン"
 };

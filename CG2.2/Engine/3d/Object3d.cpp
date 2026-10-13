@@ -59,5 +59,5 @@ void Object3d::Draw()
     ID3D12GraphicsCommandList* commandList = common_->GetDxCommon()->GetCommandList();
     commandList->SetGraphicsRootConstantBufferView(BasicPipeline::kRootMaterial, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(BasicPipeline::kRootTransform, wvpResource_->GetGPUVirtualAddress());
-    model_->Draw(commandList);
+    model_->Draw(commandList, useExternalTexture_ ? &externalSrv_ : nullptr);
 }

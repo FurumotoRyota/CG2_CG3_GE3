@@ -68,14 +68,14 @@ void Model::Initialize(DirectXCommon* dxCommon, TextureManager* textureManager, 
     }
 }
 
-void Model::Draw(ID3D12GraphicsCommandList* commandList) const
+void Model::Draw(ID3D12GraphicsCommandList* commandList, const D3D12_GPU_DESCRIPTOR_HANDLE* overrideSrv) const
 {
     for (const SubMesh& subMesh : subMeshes_) {
         if (subMesh.vertexCount == 0) {
             continue; // 空メッシュ(GPUリソース未生成)はスキップ
         }
         commandList->SetGraphicsRootDescriptorTable(
-            BasicPipeline::kRootTexture, textureManager_->GetSrvHandleGPU(subMesh.textureHandle));
+            BasicPipeline::kRootTexture, overrideSrv ? *overrideSrv : textureManager_->GetSrvHandleGPU(subMesh.textureHandle));
         commandList->IASetVertexBuffers(0, 1, &subMesh.vertexBufferView);
         commandList->DrawInstanced(UINT(subMesh.vertexCount), 1, 0, 0);
     }

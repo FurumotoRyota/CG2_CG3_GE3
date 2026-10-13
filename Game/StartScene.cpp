@@ -20,7 +20,7 @@ void StartScene::DrawImGui()
 {
 #ifdef USE_IMGUI
     EditorLayout::Begin("Hierarchy", EditorLayout::Panel::Hierarchy);
-    ImGui::Text("Scene: Start (new game)");
+    ImGui::Text("シーン: スタート(新しいゲーム)");
     ImGui::End();
 #endif // USE_IMGUI
 }

@@ -27,11 +27,11 @@ void TitleScene::Draw()
 void TitleScene::DrawImGui()
 {
 #ifdef USE_IMGUI
-    EditorLayout::Begin("Hierarchy", EditorLayout::Panel::Hierarchy);
-    ImGui::Text("Scene: Title");
+    EditorLayout::Begin("ヒエラルキー", EditorLayout::Panel::Hierarchy);
+    ImGui::Text("シーン: タイトル");
     ImGui::Separator();
-    ImGui::Text("Press ENTER / GamePad A");
-    ImGui::Text("to start the game");
+    ImGui::Text("ENTERキー / ゲームパッドのAボタンを押す");
+    ImGui::Text("ゲーム開始");
     ImGui::End();
 #endif // USE_IMGUI
 }

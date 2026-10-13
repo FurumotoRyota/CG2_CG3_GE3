@@ -4,6 +4,7 @@
 
 #include "base/Logger.h"
 #include "base/WinApp.h"
+#include "base/StringUtility.h"
 #include "2d/SpriteCommon.h"
 #include "3d/ModelLoader.h"
 #include "3d/Object3dCommon.h"
@@ -21,6 +22,8 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <sstream>
 #include <limits>
 
 #ifdef USE_IMGUI
@@ -90,6 +93,126 @@ void GameScene::Finalize()
 }
 
 // resourcesフォルダのobj/画像を調べて、追加メニューの選択肢にする
+// Copy a file into resources/ without overwriting an existing file. Returns false if the source is missing.
+static bool CopyToResources(const std::filesystem::path& src)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::is_regular_file(src, ec)) {
+        return false;
+    }
+    fs::create_directories("resources", ec);
+    const fs::path dst = fs::path("resources") / src.filename();
+    if (fs::exists(dst, ec)) {
+        return true; // already there: reuse it
+    }
+    fs::copy_file(src, dst, fs::copy_options::skip_existing, ec);
+    return !ec;
+}
+
+// Copy the .mtl referenced by an .obj and the textures referenced by that .mtl (same folder as the source)
+static void CopyObjCompanions(const std::filesystem::path& objPath)
+{
+    namespace fs = std::filesystem;
+    std::ifstream objFile(objPath);
+    std::string line;
+    while (std::getline(objFile, line)) {
+        std::istringstream stream(line);
+        std::string key, value;
+        stream >> key;
+        if (key != "mtllib" || !(stream >> value)) {
+            continue;
+        }
+        const fs::path mtlSrc = objPath.parent_path() / fs::path(value).filename();
+        CopyToResources(mtlSrc);
+
+        std::ifstream mtlFile(mtlSrc);
+        std::string mtlLine;
+        while (std::getline(mtlFile, mtlLine)) {
+            std::istringstream mtlStream(mtlLine);
+            std::string mtlKey, texName, last;
+            mtlStream >> mtlKey;
+            if (mtlKey != "map_Kd") {
+                continue;
+            }
+            while (mtlStream >> last) {
+                texName = last; // the file name is the last token
+            }
+            if (!texName.empty()) {
+                CopyToResources(mtlSrc.parent_path() / fs::path(texName).filename());
+            }
+        }
+    }
+}
+
+void GameScene::ImportDroppedFiles()
+{
+    const std::vector<std::wstring> files = WinApp::TakeDroppedFiles();
+    if (files.empty() || playing_) {
+        return;
+    }
+
+    for (const std::wstring& file : files) {
+        const std::filesystem::path src(file);
+        // The engine expects UTF-8 paths (filename().string() would be the ANSI code page)
+        const std::string name = StringUtility::ConvertString(src.filename().wstring());
+
+        if (HasExtension(src, { ".obj" })) {
+            CopyObjCompanions(src);
+            if (!CopyToResources(src)) {
+                continue;
+            }
+            auto it = std::find(objFileList_.begin(), objFileList_.end(), name);
+            if (it == objFileList_.end()) {
+                objFileList_.push_back(name);
+                it = objFileList_.end() - 1;
+            }
+            const int index = AddObject(static_cast<int>(it - objFileList_.begin()), { 0.0f, 0.0f, 0.0f });
+            selection_ = { SelectKind::Object, index };
+        }
+        else if (HasExtension(src, { ".mp4", ".m4v", ".mov", ".wmv" })) {
+            // Videos are not copied (they are large): play them from where they are
+            // Normal drop: a 3D screen in the scene. Shift + drop: a 2D sprite on top of the screen.
+            const std::string videoPath = StringUtility::ConvertString(src.wstring());
+            if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
+                const int index = AddVideoSprite(videoPath);
+                if (index >= 0) {
+                    selection_ = { SelectKind::Sprite, index };
+                }
+            }
+            else {
+                const int index = AddVideoObject(videoPath);
+                if (index >= 0) {
+                    selection_ = { SelectKind::Object, index };
+                }
+            }
+        }
+        else if (HasExtension(src, { ".png", ".jpg", ".jpeg", ".bmp" })) {
+            if (!CopyToResources(src)) {
+                continue;
+            }
+            const std::string path = "resources/" + name;
+            auto it = std::find(textureFileList_.begin(), textureFileList_.end(), path);
+            if (it == textureFileList_.end()) {
+                textureFileList_.push_back(path);
+                it = textureFileList_.end() - 1;
+            }
+            const int index = AddSprite(static_cast<int>(it - textureFileList_.begin()), { 200.0f, 200.0f });
+            selection_ = { SelectKind::Sprite, index };
+        }
+    }
+
+    // Rebuild the C-string lists used by the ImGui combo boxes
+    objFileListCStr_.clear();
+    for (const auto& n : objFileList_) {
+        objFileListCStr_.push_back(n.c_str());
+    }
+    textureFileListCStr_.clear();
+    for (const auto& n : textureFileList_) {
+        textureFileListCStr_.push_back(n.c_str());
+    }
+}
+
 void GameScene::ScanResources()
 {
     // objは既定の並びを先頭に固定する（球はコードで生成するので特別なタグ名）
@@ -165,12 +288,73 @@ int GameScene::AddSprite(int texIndex, const Vector2& size)
     return static_cast<int>(sprites_.size()) - 1;
 }
 
+int GameScene::AddVideoObject(const std::string& utf8Path)
+{
+    ObjectSlot slot;
+    slot.video = std::make_unique<VideoPlayer>();
+    if (!slot.video->Initialize(ctx_->dxCommon, ctx_->srvManager, ctx_->audio, utf8Path)) {
+        return -1;
+    }
+
+    // A video screen is the plane model with the video frame as its texture
+    const auto it = std::find(objFileList_.begin(), objFileList_.end(), "plane.obj");
+    const int planeIndex = (it == objFileList_.end()) ? 0 : static_cast<int>(it - objFileList_.begin());
+
+    slot.object = std::make_unique<GameObject>();
+    slot.object->Initialize(ctx_->object3dCommon, objFileList_[planeIndex], { 0.0f, 1.5f, 0.0f });
+    Object3d& object = slot.object->GetObject3d();
+    object.SetExternalTexture(slot.video->GetSrvHandle());
+    object.SetDoubleSided(true);                // visible from behind too
+    object.GetMaterial()->lightingMode = 0;     // unlit, like a screen
+    object.GetMaterial()->alphaCutoff = 0.0f;
+    // plane.obj is 2 x 2: keep the video's aspect ratio (height 3)
+    const float aspect = static_cast<float>(slot.video->GetWidth()) / static_cast<float>(slot.video->GetHeight());
+    object.GetTransform().Scale = { 1.5f * aspect, 1.5f, 1.0f };
+
+    slot.objIndex = planeIndex;
+    slot.loadedObjIndex = planeIndex;
+    slot.konamiOriginalColor = object.GetMaterial()->color;
+    slot.videoName = StringUtility::ConvertString(std::filesystem::path(StringUtility::ConvertString(utf8Path)).filename().wstring()); // UTF-8 for ImGui
+    slot.video->Play();
+
+    objects_.push_back(std::move(slot));
+    return static_cast<int>(objects_.size()) - 1;
+}
+
+int GameScene::AddVideoSprite(const std::string& utf8Path)
+{
+    SpriteSlot slot;
+    slot.video = std::make_unique<VideoPlayer>();
+    if (!slot.video->Initialize(ctx_->dxCommon, ctx_->srvManager, ctx_->audio, utf8Path)) {
+        return -1;
+    }
+
+    // Keep the video's aspect ratio (width 640)
+    const float width = 640.0f;
+    const float height = width * static_cast<float>(slot.video->GetHeight()) / static_cast<float>(slot.video->GetWidth());
+    slot.size = { width, height };
+
+    slot.sprite = std::make_unique<Sprite>();
+    slot.sprite->Initialize(ctx_->spriteCommon, textureFileList_[0], slot.size); // placeholder texture, replaced below
+    slot.sprite->SetExternalTexture(slot.video->GetSrvHandle());
+    slot.texIndex = 0;
+    slot.loadedTexIndex = 0;
+    slot.videoName = StringUtility::ConvertString(std::filesystem::path(StringUtility::ConvertString(utf8Path)).filename().wstring()); // UTF-8 for ImGui
+    slot.video->Play();
+
+    sprites_.push_back(std::move(slot));
+    return static_cast<int>(sprites_.size()) - 1;
+}
+
 void GameScene::DuplicateObject(int index)
 {
     if (index < 0 || index >= static_cast<int>(objects_.size())) {
         return;
     }
     // 参照を保持したままpush_backすると無効になるので、値をコピーしてから追加する
+    if (objects_[index].video) {
+        return; // videos cannot be duplicated
+    }
     const int srcModel = objects_[index].objIndex;
     Object3d& src = objects_[index].object->GetObject3d();
     const Transform transform = src.GetTransform();
@@ -201,6 +385,9 @@ void GameScene::DuplicateSprite(int index)
 {
     if (index < 0 || index >= static_cast<int>(sprites_.size())) {
         return;
+    }
+    if (sprites_[index].video) {
+        return; // videos cannot be duplicated
     }
     const int srcTex = sprites_[index].texIndex;
     const Vector2 srcSize = sprites_[index].size;
@@ -399,16 +586,24 @@ void GameScene::Update()
 
     // ImGuiで予約された 追加/複製/削除 をここで実行する（前フレームのGPU処理は完了済み）
     RunPendingCommands();
+    ImportDroppedFiles();
 
     // ImGuiでobj/テクスチャが切り替えられたものを差し替える
     // （読み込み済みのものはManagerのキャッシュから再利用される）
     for (auto& slot : objects_) {
+        if (slot.video) {
+            slot.video->Update(); // decode + upload the current frame
+        }
         if (slot.objIndex != slot.loadedObjIndex) {
             slot.object->GetObject3d().SetModel(objFileList_[slot.objIndex]);
             slot.loadedObjIndex = slot.objIndex;
         }
     }
     for (auto& slot : sprites_) {
+        if (slot.video) {
+            slot.video->Update(); // decode + upload the current frame
+            continue;
+        }
         if (slot.texIndex != slot.loadedTexIndex) {
             slot.sprite->SetTexture(textureFileList_[slot.texIndex]);
             slot.loadedTexIndex = slot.texIndex;
@@ -489,7 +684,10 @@ void GameScene::UpdateCameraControl()
     }
 
     debugCamera_->SetControlEnabled(cameraActive_);
-    debugCamera_->SetMouseLook(cameraActive_ ? vp.mouseDelta.x : 0.0f, cameraActive_ ? vp.mouseDelta.y : 0.0f);
+    if (vp.middleClicked) { middleActive_ = true; }
+    if (!vp.middleDown) { middleActive_ = false; }
+    const bool looking = middleActive_; // right button no longer rotates (WASD only)
+    debugCamera_->SetMouseLook(looking ? vp.mouseDelta.x : 0.0f, looking ? vp.mouseDelta.y : 0.0f);
     debugCamera_->SetZoom(vp.wheel); // ホイールはViewportにマウスが乗っていれば常に有効
 
     // 左クリックでオブジェクトをドラッグ中、カーソルが画面の端に来たらWASD(A/D・Space/Shift)と
@@ -541,7 +739,7 @@ void GameScene::UpdateViewportInteraction()
     //--------------------------------------------------
     // クリック
     //--------------------------------------------------
-    if (vp.clicked && !cameraActive_) {
+    if (vp.clicked && !cameraActive_ && !middleActive_) {
         dragMode_ = DragMode::None;
 
         // ① 選択中の項目のハンドルをつかんだか（四隅を先に判定する）
@@ -963,6 +1161,39 @@ void GameScene::DrawSelectionOutline()
         }
     }
 
+    // Position markers for every object / sprite / plane group so nothing gets lost
+    if (showMarkers_) {
+        const Matrix4x4& mView = camera_->GetViewMatrix();
+        const Matrix4x4& mProjection = camera_->GetProjectionMatrix();
+        for (int i = 0; i < static_cast<int>(objects_.size()); ++i) {
+            Vector2 s{};
+            if (Picking::WorldToScreen(objects_[i].object->GetObject3d().GetTransform().Translate, mView, mProjection, s)) {
+                const bool sel = selection_.kind == SelectKind::Object && selection_.index == i;
+                const std::string name = objects_[i].video ? objects_[i].videoName : objFileList_[objects_[i].objIndex];
+                EditorLayout::DrawViewportMarker(s, name.c_str(), sel ? IM_COL32(255, 200, 0, 255) : IM_COL32(80, 220, 255, 255), sel);
+            }
+        }
+        for (int i = 0; i < static_cast<int>(sprites_.size()); ++i) {
+            Vector2 corners[4];
+            Picking::GetSpriteCorners(sprites_[i].sprite->GetTransform(), sprites_[i].size, corners);
+            const Vector2 c = { (corners[0].x + corners[2].x) * 0.5f, (corners[0].y + corners[2].y) * 0.5f };
+            const bool sel = selection_.kind == SelectKind::Sprite && selection_.index == i;
+            const std::string name = sprites_[i].video ? sprites_[i].videoName : textureFileList_[sprites_[i].texIndex];
+            EditorLayout::DrawViewportMarker(c, name.c_str(), sel ? IM_COL32(255, 200, 0, 255) : IM_COL32(120, 255, 120, 255), sel);
+        }
+        for (int i = 0; i < static_cast<int>(planes_.size()); ++i) {
+            if (planes_[i].planes->GetDrawCount() <= 0) {
+                continue;
+            }
+            Vector2 s{};
+            if (Picking::WorldToScreen(planes_[i].planes->GetInstanceTransform(0).Translate, mView, mProjection, s)) {
+                const bool sel = selection_.kind == SelectKind::Planes && selection_.index == i;
+                const std::string name = std::format("{}", textureFileList_[planes_[i].texIndex]);
+                EditorLayout::DrawViewportMarker(s, name.c_str(), sel ? IM_COL32(255, 200, 0, 255) : IM_COL32(255, 130, 255, 255), sel);
+            }
+        }
+    }
+
     // パーティクルエミッターの目印（菱形）。選択中は大きく描き、発射方向の線も出す
     const Matrix4x4& view = camera_->GetViewMatrix();
     const Matrix4x4& projection = camera_->GetProjectionMatrix();
@@ -1111,6 +1342,35 @@ void GameScene::Draw()
 //==================================================
 // エディタUI
 //==================================================
+#ifdef USE_IMGUI
+// Play / pause / restart / loop / volume controls for a video
+static void DrawVideoControls(VideoPlayer& video, const std::string& name)
+{
+    ImGui::Text("ファイル: %s", name.c_str());
+    ImGui::Text("%d x %d  %.1f / %.1f 秒", static_cast<int>(video.GetWidth()), static_cast<int>(video.GetHeight()), video.GetTime(), video.GetDuration());
+    if (ImGui::Button(video.IsPlaying() ? "一時停止" : "再生")) {
+        if (video.IsPlaying()) {
+            video.Pause();
+        }
+        else {
+            video.Play();
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("最初から")) {
+        video.Restart();
+    }
+    bool loop = video.IsLoop();
+    if (ImGui::Checkbox("ループ", &loop)) {
+        video.SetLoop(loop);
+    }
+    float volume = video.GetVolume();
+    if (ImGui::SliderFloat("音量", &volume, 0.0f, 1.0f)) {
+        video.SetVolume(volume);
+    }
+}
+#endif // USE_IMGUI
+
 void GameScene::DrawImGui()
 {
 #ifdef USE_IMGUI
@@ -1123,7 +1383,7 @@ void GameScene::DrawImGui()
 
     // 「追加」メニューの中身（[+ Add]ボタンと、Hierarchyの空きスペースの右クリックで共通）
     auto drawAddMenu = [&]() {
-        if (ImGui::BeginMenu("Add Object")) {
+        if (ImGui::BeginMenu("オブジェクトを追加")) {
             for (int i = 0; i < static_cast<int>(objFileList_.size()); ++i) {
                 if (ImGui::MenuItem(objFileList_[i].c_str())) {
                     pendingCommands_.push_back([this, i]() {
@@ -1134,7 +1394,7 @@ void GameScene::DrawImGui()
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Add Instanced Planes")) {
+        if (ImGui::BeginMenu("インスタンス平面を追加")) {
             for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
                 if (ImGui::MenuItem(textureFileList_[i].c_str())) {
                     pendingCommands_.push_back([this, i]() {
@@ -1148,7 +1408,7 @@ void GameScene::DrawImGui()
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Add Particle Emitter")) {
+        if (ImGui::BeginMenu("パーティクルエミッターを追加")) {
             for (int i = 0; i < kParticlePresetCount; ++i) {
                 if (ImGui::MenuItem(kParticlePresetNames[i])) {
                     pendingCommands_.push_back([this, i]() {
@@ -1159,7 +1419,7 @@ void GameScene::DrawImGui()
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Add Sprite")) {
+        if (ImGui::BeginMenu("スプライトを追加")) {
             for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
                 if (ImGui::MenuItem(textureFileList_[i].c_str())) {
                     pendingCommands_.push_back([this, i]() {
@@ -1176,31 +1436,31 @@ void GameScene::DrawImGui()
     //--------------------------------------------------
     // Hierarchy（左）：シーン内の項目一覧。クリックで選択、右クリックでメニュー
     //--------------------------------------------------
-    EditorLayout::Begin("Hierarchy", EditorLayout::Panel::Hierarchy);
-    ImGui::Text("Scene: Game");
+    EditorLayout::Begin("ヒエラルキー", EditorLayout::Panel::Hierarchy);
+    ImGui::Text("シーン: ゲーム");
 
     // 実行 / 停止
     if (playing_) {
-        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Mode: PLAY");
+        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "モード: 再生中");
         ImGui::SameLine();
-        if (ImGui::Button("Stop")) {
+        if (ImGui::Button("停止")) {
             StopPlay();
         }
     }
     else {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Mode: EDIT");
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "モード: 編集中");
         ImGui::SameLine();
-        if (ImGui::Button("Play")) {
+        if (ImGui::Button("再生")) {
             StartPlay();
         }
     }
 
     // 追加・複製・削除は編集モードのときだけ
     if (playing_) {
-        ImGui::TextDisabled("(Add/Duplicate/Delete: EDIT mode only)");
+        ImGui::TextDisabled("(追加/複製/削除は編集モードのみ)");
     }
     else {
-        if (ImGui::Button("+ Add")) {
+        if (ImGui::Button("+ 追加")) {
             ImGui::OpenPopup("AddPopup");
         }
         if (ImGui::BeginPopup("AddPopup")) {
@@ -1212,7 +1472,9 @@ void GameScene::DrawImGui()
 
     // 3Dオブジェクト
     for (int i = 0; i < objectCount; ++i) {
-        std::string label = std::format("[Obj {}] {}", i, objFileList_[objects_[i].objIndex]);
+        std::string label = objects_[i].video
+            ? std::format("[動画3D {}] {}", i, objects_[i].videoName)
+            : std::format("[オブジェクト {}] {}", i, objFileList_[objects_[i].objIndex]);
         const bool selected = selection_.kind == SelectKind::Object && selection_.index == i;
         ImGui::PushID(i);
         if (ImGui::Selectable(label.c_str(), selected)) {
@@ -1222,10 +1484,10 @@ void GameScene::DrawImGui()
             selection_ = { SelectKind::Object, i };
         }
         if (ImGui::BeginPopupContextItem("ObjectContext")) {
-            if (ImGui::MenuItem("Duplicate", nullptr, false, !playing_)) {
+            if (ImGui::MenuItem("複製", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() { DuplicateObject(i); });
             }
-            if (ImGui::MenuItem("Delete", nullptr, false, !playing_)) {
+            if (ImGui::MenuItem("削除", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() {
                     if (i < static_cast<int>(objects_.size())) {
                         objects_.erase(objects_.begin() + i);
@@ -1240,7 +1502,9 @@ void GameScene::DrawImGui()
 
     // スプライト
     for (int i = 0; i < spriteCount; ++i) {
-        std::string label = std::format("[Sprite {}] {}", i, textureFileList_[sprites_[i].texIndex]);
+        std::string label = sprites_[i].video
+            ? std::format("[動画 {}] {}", i, sprites_[i].videoName)
+            : std::format("[スプライト {}] {}", i, textureFileList_[sprites_[i].texIndex]);
         const bool selected = selection_.kind == SelectKind::Sprite && selection_.index == i;
         ImGui::PushID(1000 + i);
         if (ImGui::Selectable(label.c_str(), selected)) {
@@ -1250,10 +1514,10 @@ void GameScene::DrawImGui()
             selection_ = { SelectKind::Sprite, i };
         }
         if (ImGui::BeginPopupContextItem("SpriteContext")) {
-            if (ImGui::MenuItem("Duplicate", nullptr, false, !playing_)) {
+            if (ImGui::MenuItem("複製", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() { DuplicateSprite(i); });
             }
-            if (ImGui::MenuItem("Delete", nullptr, false, !playing_)) {
+            if (ImGui::MenuItem("削除", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() {
                     if (i < static_cast<int>(sprites_.size())) {
                         sprites_.erase(sprites_.begin() + i);
@@ -1268,7 +1532,7 @@ void GameScene::DrawImGui()
 
     // 板ポリ大量配置
     for (int i = 0; i < static_cast<int>(planes_.size()); ++i) {
-        std::string label = std::format("[Planes {}] {} x{}", i, textureFileList_[planes_[i].texIndex], planes_[i].planes->GetDrawCount());
+        std::string label = std::format("[平面 {}] {} x{}", i, textureFileList_[planes_[i].texIndex], planes_[i].planes->GetDrawCount());
         const bool selected = selection_.kind == SelectKind::Planes && selection_.index == i;
         ImGui::PushID(3000 + i);
         if (ImGui::Selectable(label.c_str(), selected)) {
@@ -1278,10 +1542,10 @@ void GameScene::DrawImGui()
             selection_ = { SelectKind::Planes, i };
         }
         if (ImGui::BeginPopupContextItem("PlanesContext")) {
-            if (ImGui::MenuItem("Duplicate", nullptr, false, !playing_)) {
+            if (ImGui::MenuItem("複製", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() { DuplicatePlanes(i); });
             }
-            if (ImGui::MenuItem("Delete", nullptr, false, !playing_)) {
+            if (ImGui::MenuItem("削除", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() {
                     if (i < static_cast<int>(planes_.size())) {
                         planes_.erase(planes_.begin() + i);
@@ -1296,7 +1560,7 @@ void GameScene::DrawImGui()
 
     // パーティクルエミッター
     for (int i = 0; i < static_cast<int>(emitters_.size()); ++i) {
-        std::string label = std::format("[Emitter {}] {}", i, kParticlePresetNames[static_cast<int>(emitters_[i].preset)]);
+        std::string label = std::format("[エミッター {}] {}", i, kParticlePresetNames[static_cast<int>(emitters_[i].preset)]);
         const bool selected = selection_.kind == SelectKind::Emitter && selection_.index == i;
         ImGui::PushID(2000 + i);
         if (ImGui::Selectable(label.c_str(), selected)) {
@@ -1306,10 +1570,10 @@ void GameScene::DrawImGui()
             selection_ = { SelectKind::Emitter, i };
         }
         if (ImGui::BeginPopupContextItem("EmitterContext")) {
-            if (ImGui::MenuItem("Duplicate", nullptr, false, !playing_)) {
+            if (ImGui::MenuItem("複製", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() { DuplicateEmitter(i); });
             }
-            if (ImGui::MenuItem("Delete", nullptr, false, !playing_)) {
+            if (ImGui::MenuItem("削除", nullptr, false, !playing_)) {
                 pendingCommands_.push_back([this, i]() {
                     if (i < static_cast<int>(emitters_.size())) {
                         emitters_.erase(emitters_.begin() + i);
@@ -1323,25 +1587,28 @@ void GameScene::DrawImGui()
     }
 
     // ライト（削除不可）
-    if (ImGui::Selectable("Directional Light", selection_.kind == SelectKind::Light)) {
+    if (ImGui::Selectable("ディレクショナルライト", selection_.kind == SelectKind::Light)) {
         selection_ = { SelectKind::Light, 0 };
     }
 
     ImGui::Separator();
-    ImGui::Text("Party Mode: %s (Konami, PLAY only)", konamiPartyMode_ ? "ON" : "OFF");
-    ImGui::Text("Particles: %zu / %u", ctx_->particleSystem->GetCount(), ParticleSystem::kMaxParticles);
-    ImGui::Text("Play: emitters run, Stop: scene restored");
-    ImGui::Text("Viewport: click = select, drag = move");
-    ImGui::Text("Emitter = diamond mark (click to select)");
-    ImGui::Text("Instanced Planes: one group = N planes");
-    ImGui::Text("Drag 3D to the edge: camera follows");
-    ImGui::Text("Drag edge = stretch that way");
-    ImGui::Text("Drag corner = scale (Shift: free)");
-    ImGui::Text("(Shift+drag 3D: move on the ground)");
-    ImGui::Text("Viewport right-hold: camera");
-    ImGui::Text("  mouse=look WASD=move Space/Shift=up/down");
-    ImGui::Text("Right click list: Add / Duplicate / Delete");
-    ImGui::Text("BACKSPACE: back to Title");
+    ImGui::Text("パーティーモード: %s (コナミコマンド・再生中のみ)", konamiPartyMode_ ? "オン" : "オフ");
+    ImGui::Text("パーティクル数: %zu / %u", ctx_->particleSystem->GetCount(), ParticleSystem::kMaxParticles);
+    ImGui::Text("再生: エミッターが動く / 停止: シーンが元に戻る");
+    ImGui::Text("ビューポート: クリックで選択、ドラッグで移動");
+    ImGui::Text("エミッターはひし形のマーク(クリックで選択)");
+    ImGui::Text("インスタンス平面: 1グループ = N枚の平面");
+    ImGui::Text("3Dを画面端までドラッグ: カメラが追従");
+    ImGui::Checkbox("位置マーカーを表示", &showMarkers_);
+    ImGui::Separator();
+    ImGui::Text("辺をドラッグ: その方向に伸縮");
+    ImGui::Text("角をドラッグ: 拡大縮小 (Shift: 自由変形)");
+    ImGui::Text("(Shift+3Dをドラッグ: 地面の上を移動)");
+    ImGui::Text("ビューポートを右ボタン長押し: WASDで移動");
+    ImGui::Text("ホイールクリック+ドラッグ: カメラの向きを変える");
+    ImGui::Text("  マウス=視点 WASD=移動 Space/Shift=上昇/下降");
+    ImGui::Text("リストを右クリック: 追加 / 複製 / 削除");
+    ImGui::Text("BACKSPACE: タイトルに戻る");
 
     // 項目の上以外（空きスペース）を右クリックしたときのメニュー
     if (!playing_ && ImGui::BeginPopupContextWindow("HierarchyContext", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
@@ -1353,11 +1620,11 @@ void GameScene::DrawImGui()
     //--------------------------------------------------
     // Inspector（右）：選択中の項目のプロパティ
     //--------------------------------------------------
-    EditorLayout::Begin("Inspector", EditorLayout::Panel::Inspector);
+    EditorLayout::Begin("インスペクター", EditorLayout::Panel::Inspector);
 
     // 選択中の項目の削除ボタン（編集モードのみ）。Deleteキー / Hierarchyの右クリックでも削除できる
     if (!playing_ && (selection_.kind == SelectKind::Object || selection_.kind == SelectKind::Sprite || selection_.kind == SelectKind::Planes || selection_.kind == SelectKind::Emitter)) {
-        if (ImGui::Button("Delete (Del key)")) {
+        if (ImGui::Button("削除 (Delキー)")) {
             pendingCommands_.push_back([this]() { DeleteSelection(); });
         }
     }
@@ -1366,108 +1633,143 @@ void GameScene::DrawImGui()
         ObjectSlot& slot = objects_[selection_.index];
         Object3d& object = slot.object->GetObject3d();
 
-        ImGui::Text("Object [%d]", selection_.index);
+        ImGui::Text(slot.video ? "動画 (3D) [%d]" : "オブジェクト [%d]", selection_.index);
         ImGui::Separator();
-        ImGui::Combo("Obj File", &slot.objIndex, objFileListCStr_.data(), static_cast<int>(objFileListCStr_.size()));
-        ImGui::DragFloat3("Scale", &object.GetTransform().Scale.x, 0.01f);
-        ImGui::DragFloat3("Rotate", &object.GetTransform().Rotate.x, 0.01f);
-        ImGui::DragFloat3("Translate", &object.GetTransform().Translate.x, 0.01f);
-        ImGui::ColorEdit4("Color", &object.GetMaterial()->color.x);
-        const char* lightingModes[] = { "normal", "Lambert", "Half Lambert" };
-        ImGui::Combo("Lighting Mode", &object.GetMaterial()->lightingMode, lightingModes, IM_ARRAYSIZE(lightingModes));
+        if (slot.video) {
+            DrawVideoControls(*slot.video, slot.videoName);
+        }
+        else {
+            ImGui::Combo("OBJファイル", &slot.objIndex, objFileListCStr_.data(), static_cast<int>(objFileListCStr_.size()));
+        }
+        ImGui::DragFloat3("スケール", &object.GetTransform().Scale.x, 0.01f);
+        ImGui::DragFloat3("回転", &object.GetTransform().Rotate.x, 0.01f);
+        ImGui::DragFloat3("移動", &object.GetTransform().Translate.x, 0.01f);
+        ImGui::ColorEdit4("色", &object.GetMaterial()->color.x);
+        const char* lightingModes[] = { "なし", "ランバート", "ハーフランバート" };
+        ImGui::Combo("ライティング", &object.GetMaterial()->lightingMode, lightingModes, IM_ARRAYSIZE(lightingModes));
         int blendMode = static_cast<int>(object.GetBlendMode());
-        if (ImGui::Combo("Blend Mode", &blendMode, kBlendModeNames, kBlendModeCount)) {
+        if (ImGui::Combo("ブレンドモード", &blendMode, kBlendModeNames, kBlendModeCount)) {
             object.SetBlendMode(static_cast<BlendMode>(blendMode));
         }
-        ImGui::SliderFloat("Alpha Cutoff", &object.GetMaterial()->alphaCutoff, 0.0f, 1.0f);
+        ImGui::SliderFloat("アルファカットオフ", &object.GetMaterial()->alphaCutoff, 0.0f, 1.0f);
         bool doubleSided = object.IsDoubleSided();
-        if (ImGui::Checkbox("Double Sided", &doubleSided)) {
+        if (ImGui::Checkbox("両面描画", &doubleSided)) {
             object.SetDoubleSided(doubleSided);
         }
-        if (ImGui::CollapsingHeader("UV Transform")) {
-            ImGui::DragFloat2("UVTranslate", &object.GetUvTransform().Translate.x, 0.01f, -10.0f, 10.0f);
-            ImGui::DragFloat2("UVScale", &object.GetUvTransform().Scale.x, 0.01f, -10.0f, 10.0f);
-            ImGui::SliderAngle("UVRotate", &object.GetUvTransform().Rotate.z);
+        if (ImGui::CollapsingHeader("UV変換")) {
+            ImGui::DragFloat2("UV移動", &object.GetUvTransform().Translate.x, 0.01f, -10.0f, 10.0f);
+            ImGui::DragFloat2("UVスケール", &object.GetUvTransform().Scale.x, 0.01f, -10.0f, 10.0f);
+            ImGui::SliderAngle("UV回転", &object.GetUvTransform().Rotate.z);
         }
     }
     else if (selection_.kind == SelectKind::Sprite && selection_.index < spriteCount) {
         SpriteSlot& slot = sprites_[selection_.index];
         Sprite& sprite = *slot.sprite;
 
-        ImGui::Text("Sprite [%d]", selection_.index);
+        ImGui::Text(slot.video ? "動画 [%d]" : "スプライト [%d]", selection_.index);
         ImGui::Separator();
-        ImGui::Combo("Texture", &slot.texIndex, textureFileListCStr_.data(), static_cast<int>(textureFileListCStr_.size()));
-        ImGui::DragFloat3("Scale", &sprite.GetTransform().Scale.x, 0.01f);
-        ImGui::DragFloat3("Rotate", &sprite.GetTransform().Rotate.x, 0.01f);
-        ImGui::DragFloat3("Translate", &sprite.GetTransform().Translate.x, 1.0f);
-        ImGui::ColorEdit4("Color", &sprite.GetMaterial()->color.x);
+        if (slot.video) {
+            DrawVideoControls(*slot.video, slot.videoName);
+        }
+        else {
+            ImGui::Combo("テクスチャ", &slot.texIndex, textureFileListCStr_.data(), static_cast<int>(textureFileListCStr_.size()));
+        }
+        ImGui::DragFloat3("スケール", &sprite.GetTransform().Scale.x, 0.01f);
+        ImGui::DragFloat3("回転", &sprite.GetTransform().Rotate.x, 0.01f);
+        ImGui::DragFloat3("移動", &sprite.GetTransform().Translate.x, 1.0f);
+        ImGui::ColorEdit4("色", &sprite.GetMaterial()->color.x);
         int blendMode = static_cast<int>(sprite.GetBlendMode());
-        if (ImGui::Combo("Blend Mode", &blendMode, kBlendModeNames, kBlendModeCount)) {
+        if (ImGui::Combo("ブレンドモード", &blendMode, kBlendModeNames, kBlendModeCount)) {
             sprite.SetBlendMode(static_cast<BlendMode>(blendMode));
         }
-        ImGui::SliderFloat("Alpha Cutoff", &sprite.GetMaterial()->alphaCutoff, 0.0f, 1.0f);
-        if (ImGui::CollapsingHeader("UV Transform")) {
-            ImGui::DragFloat2("UVTranslate", &sprite.GetUvTransform().Translate.x, 0.01f, -10.0f, 10.0f);
-            ImGui::DragFloat2("UVScale", &sprite.GetUvTransform().Scale.x, 0.01f, -10.0f, 10.0f);
-            ImGui::SliderAngle("UVRotate", &sprite.GetUvTransform().Rotate.z);
+        ImGui::SliderFloat("アルファカットオフ", &sprite.GetMaterial()->alphaCutoff, 0.0f, 1.0f);
+        if (ImGui::CollapsingHeader("UV変換")) {
+            ImGui::DragFloat2("UV移動", &sprite.GetUvTransform().Translate.x, 0.01f, -10.0f, 10.0f);
+            ImGui::DragFloat2("UVスケール", &sprite.GetUvTransform().Scale.x, 0.01f, -10.0f, 10.0f);
+            ImGui::SliderAngle("UV回転", &sprite.GetUvTransform().Rotate.z);
         }
     }
     else if (selection_.kind == SelectKind::Planes && selection_.index < static_cast<int>(planes_.size())) {
         PlanesSlot& slot = planes_[selection_.index];
         InstancedPlanes::Settings& settings = slot.planes->GetSettings();
 
-        ImGui::Text("Instanced Planes [%d]", selection_.index);
-        ImGui::Text("%d planes, 1 DrawInstanced call", slot.planes->GetDrawCount());
+        ImGui::Text("インスタンス平面 [%d]", selection_.index);
+        ImGui::Text("%d枚の平面 (DrawInstanced 1回)", slot.planes->GetDrawCount());
         ImGui::Separator();
-        ImGui::Combo("Texture", &slot.texIndex, textureFileListCStr_.data(), static_cast<int>(textureFileListCStr_.size()));
-        ImGui::SliderInt("Count", &settings.count, 1, static_cast<int>(InstancedPlanes::kMaxInstances));
-        ImGui::DragFloat3("Size", &settings.base.Scale.x, 0.02f);
-        ImGui::DragFloat3("Rotate", &settings.base.Rotate.x, 0.01f);
-        ImGui::DragFloat3("Position", &settings.base.Translate.x, 0.05f);
-        ImGui::DragFloat3("Spacing", &settings.spacing.x, 0.02f);
-        ImGui::DragFloat3("Rotate Step", &settings.rotateStep.x, 0.005f);
-        ImGui::ColorEdit4("Color", &settings.color.x);
+        ImGui::Combo("テクスチャ", &slot.texIndex, textureFileListCStr_.data(), static_cast<int>(textureFileListCStr_.size()));
+        ImGui::SliderInt("数", &settings.count, 1, static_cast<int>(InstancedPlanes::kMaxInstances));
+        ImGui::DragFloat3("サイズ", &settings.base.Scale.x, 0.02f);
+        ImGui::DragFloat3("回転", &settings.base.Rotate.x, 0.01f);
+        ImGui::DragFloat3("位置", &settings.base.Translate.x, 0.05f);
+        ImGui::DragFloat3("間隔", &settings.spacing.x, 0.02f);
+        ImGui::DragFloat3("回転ステップ", &settings.rotateStep.x, 0.005f);
+        ImGui::ColorEdit4("色", &settings.color.x);
     }
     else if (selection_.kind == SelectKind::Emitter && selection_.index < static_cast<int>(emitters_.size())) {
         ParticleEmitter& e = emitters_[selection_.index];
 
-        ImGui::Text("Particle Emitter [%d]", selection_.index);
+        // Texture picker: "None" or one of textureFileList_ (the chosen path is stored in 'path')
+        auto drawTextureCombo = [&](const char* label, std::string& path) {
+            const char* kNoTexture = "(なし: 形で描く)";
+            int currentTexture = 0; // 0 = None
+            for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
+                if (textureFileList_[i] == path) {
+                    currentTexture = i + 1;
+                    break;
+                }
+            }
+            const char* preview = (currentTexture == 0) ? kNoTexture : textureFileList_[currentTexture - 1].c_str();
+            if (ImGui::BeginCombo(label, preview)) {
+                if (ImGui::Selectable(kNoTexture, currentTexture == 0)) {
+                    path.clear();
+                }
+                for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
+                    if (ImGui::Selectable(textureFileList_[i].c_str(), currentTexture == i + 1)) {
+                        path = textureFileList_[i];
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        };
+
+        ImGui::Text("パーティクルエミッター [%d]", selection_.index);
         ImGui::Separator();
 
         // プリセットを選ぶと、下の値が全てそのプリセットの値に置き換わる
         int preset = static_cast<int>(e.preset);
-        if (ImGui::Combo("Preset", &preset, kParticlePresetNames, kParticlePresetCount)) {
+        if (ImGui::Combo("プリセット", &preset, kParticlePresetNames, kParticlePresetCount)) {
             e.ApplyPreset(static_cast<ParticlePreset>(preset));
         }
-        ImGui::Checkbox("Enabled", &e.enabled);
+        ImGui::Checkbox("有効", &e.enabled);
         ImGui::SameLine();
-        if (ImGui::Button("Play (burst now)")) {
+        if (ImGui::Button("再生(今すぐバースト)")) {
             e.playRequested = true;
         }
-        ImGui::DragFloat3("Position", &e.position.x, 0.05f);
+        ImGui::DragFloat3("位置", &e.position.x, 0.05f);
 
-        if (ImGui::CollapsingHeader("Emit", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::CollapsingHeader("発生", ImGuiTreeNodeFlags_DefaultOpen)) {
             int mode = static_cast<int>(e.mode);
-            if (ImGui::Combo("Mode", &mode, kEmitModeNames, 2)) {
+            if (ImGui::Combo("モード", &mode, kEmitModeNames, 2)) {
                 e.mode = static_cast<EmitMode>(mode);
             }
             if (e.mode == EmitMode::Continuous) {
-                ImGui::DragFloat("Rate (/sec)", &e.rate, 1.0f, 0.0f, 1000.0f);
+                ImGui::DragFloat("発生レート (個/秒)", &e.rate, 1.0f, 0.0f, 1000.0f);
             }
             else {
-                ImGui::DragInt("Burst Count", &e.burstCount, 1.0f, 1, 1000);
-                ImGui::DragFloat("Interval (0=manual)", &e.burstInterval, 0.05f, 0.0f, 30.0f);
+                ImGui::DragInt("バースト数", &e.burstCount, 1.0f, 1, 1000);
+                ImGui::DragFloat("間隔 (0=手動)", &e.burstInterval, 0.05f, 0.0f, 30.0f);
             }
-            ImGui::DragFloat("Radius", &e.radius, 0.05f, 0.0f, 50.0f);
-            ImGui::Checkbox("Flat (XZ disc)", &e.emitFlat);
-            ImGui::Checkbox("Fireworks (explode at end)", &e.fireworks);
+            ImGui::DragFloat("半径", &e.radius, 0.05f, 0.0f, 50.0f);
+            ImGui::Checkbox("平らな円盤 (XZ)", &e.emitFlat);
+            ImGui::Checkbox("花火 (最後に弾ける)", &e.fireworks);
             if (e.fireworks) {
-                ImGui::DragInt("Spark Count", &e.sparkCount, 1.0f, 1, 300);
+                ImGui::DragInt("火花の数", &e.sparkCount, 1.0f, 1, 300);
+                drawTextureCombo("火花のテクスチャ", e.sparkTexturePath);
             }
         }
 
-        if (ImGui::CollapsingHeader("Motion", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::DragFloat3("Direction", &e.direction.x, 0.01f)) {
+        if (ImGui::CollapsingHeader("動き", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::DragFloat3("方向", &e.direction.x, 0.01f)) {
                 if (e.direction.Length() > 0.0f) {
                     e.direction = e.direction.Normalize();
                 }
@@ -1475,67 +1777,46 @@ void GameScene::DrawImGui()
                     e.direction = { 0.0f, 1.0f, 0.0f };
                 }
             }
-            ImGui::SliderFloat("Spread (deg)", &e.spreadDeg, 0.0f, 180.0f);
-            ImGui::DragFloatRange2("Speed", &e.speedMin, &e.speedMax, 0.05f, 0.0f, 50.0f);
-            ImGui::DragFloatRange2("Life (sec)", &e.lifeMin, &e.lifeMax, 0.05f, 0.05f, 30.0f);
-            ImGui::DragFloat("Gravity", &e.gravity, 0.05f, -20.0f, 20.0f);
-            ImGui::DragFloat("Drag", &e.drag, 0.02f, 0.0f, 10.0f);
-            ImGui::DragFloat("Wobble", &e.wobble, 0.02f, 0.0f, 10.0f);
+            ImGui::SliderFloat("拡散角 (度)", &e.spreadDeg, 0.0f, 180.0f);
+            ImGui::DragFloatRange2("速度", &e.speedMin, &e.speedMax, 0.05f, 0.0f, 50.0f);
+            ImGui::DragFloatRange2("寿命 (秒)", &e.lifeMin, &e.lifeMax, 0.05f, 0.05f, 30.0f);
+            ImGui::DragFloat("重力", &e.gravity, 0.05f, -20.0f, 20.0f);
+            ImGui::DragFloat("空気抵抗", &e.drag, 0.02f, 0.0f, 10.0f);
+            ImGui::DragFloat("ゆれ", &e.wobble, 0.02f, 0.0f, 10.0f);
         }
 
-        if (ImGui::CollapsingHeader("Look", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::DragFloat("Size Start", &e.sizeStart, 0.02f, 0.0f, 20.0f);
-            ImGui::DragFloat("Size End", &e.sizeEnd, 0.02f, 0.0f, 20.0f);
-            ImGui::SliderFloat("Size Random", &e.sizeRandom, 0.0f, 1.0f);
-            ImGui::Checkbox("Rainbow (random hue)", &e.rainbow);
-            ImGui::ColorEdit4("Color Start", &e.colorStart.x);
-            ImGui::ColorEdit4("Color End", &e.colorEnd.x);
+        if (ImGui::CollapsingHeader("見た目", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragFloat("開始サイズ", &e.sizeStart, 0.02f, 0.0f, 20.0f);
+            ImGui::DragFloat("終了サイズ", &e.sizeEnd, 0.02f, 0.0f, 20.0f);
+            ImGui::SliderFloat("サイズのばらつき", &e.sizeRandom, 0.0f, 1.0f);
+            ImGui::Checkbox("虹色 (ランダムな色相)", &e.rainbow);
+            ImGui::ColorEdit4("開始色", &e.colorStart.x);
+            ImGui::ColorEdit4("終了色", &e.colorEnd.x);
             int shape = static_cast<int>(e.shape);
-            if (ImGui::Combo("Shape", &shape, kParticleShapeNames, 3)) {
+            if (ImGui::Combo("形", &shape, kParticleShapeNames, 3)) {
                 e.shape = static_cast<ParticleShape>(shape);
             }
 
-            // テクスチャ（None なら上の Shape で描く）。エミッターごとに別の画像を選べる
-            {
-                const char* kNoTexture = "(None: use shape)";
-                int currentTexture = 0; // 0 = None
-                for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
-                    if (textureFileList_[i] == e.texturePath) {
-                        currentTexture = i + 1;
-                        break;
-                    }
-                }
-                const char* preview = (currentTexture == 0) ? kNoTexture : textureFileList_[currentTexture - 1].c_str();
-                if (ImGui::BeginCombo("Particle Texture", preview)) {
-                    if (ImGui::Selectable(kNoTexture, currentTexture == 0)) {
-                        e.texturePath.clear();
-                    }
-                    for (int i = 0; i < static_cast<int>(textureFileList_.size()); ++i) {
-                        if (ImGui::Selectable(textureFileList_[i].c_str(), currentTexture == i + 1)) {
-                            e.texturePath = textureFileList_[i];
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-            }
+            // テクスチャ（なしなら上の「形」で描く）。エミッターごとに別の画像を選べる
+            drawTextureCombo("パーティクルのテクスチャ", e.texturePath);
             int blend = e.additive ? 1 : 0;
-            const char* blendNames[] = { "Normal", "Add" };
-            if (ImGui::Combo("Blend", &blend, blendNames, 2)) {
+            const char* blendNames[] = { "通常", "加算" };
+            if (ImGui::Combo("ブレンド", &blend, blendNames, 2)) {
                 e.additive = (blend == 1);
             }
         }
     }
     else if (selection_.kind == SelectKind::Light) {
-        ImGui::Text("Directional Light");
+        ImGui::Text("ディレクショナルライト");
         ImGui::Separator();
-        ImGui::ColorEdit4("Color", &directionalLight_->color.x);
-        if (ImGui::DragFloat3("Direction", &directionalLight_->direction.x, 0.01f)) {
+        ImGui::ColorEdit4("色", &directionalLight_->color.x);
+        if (ImGui::DragFloat3("方向", &directionalLight_->direction.x, 0.01f)) {
             directionalLight_->direction = Normalize(directionalLight_->direction);
         }
-        ImGui::DragFloat("Intensity", &directionalLight_->intensity, 0.01f);
+        ImGui::DragFloat("強さ", &directionalLight_->intensity, 0.01f);
     }
     else {
-        ImGui::Text("Nothing selected");
+        ImGui::Text("何も選択されていません");
     }
 
     ImGui::End();

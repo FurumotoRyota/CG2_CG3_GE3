@@ -20,7 +20,8 @@ public:
     void Initialize(DirectXCommon* dxCommon, TextureManager* textureManager, const ModelData& modelData);
 
     // 全サブメッシュを描画する（マテリアル・WVPのCBVは呼び出し側で設定しておく）
-    void Draw(ID3D12GraphicsCommandList* commandList) const;
+    // overrideSrv: use this texture for every sub mesh instead of the model's own textures (e.g. a video frame)
+    void Draw(ID3D12GraphicsCommandList* commandList, const D3D12_GPU_DESCRIPTOR_HANDLE* overrideSrv = nullptr) const;
 
     // モデル座標系での外接ボックス（Viewportでのクリック判定・選択枠の表示に使う）
     const Vector3& GetBoundsMin() const { return boundsMin_; }

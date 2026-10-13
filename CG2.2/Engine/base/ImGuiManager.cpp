@@ -3,6 +3,7 @@
 #include "../base/DirectXCommon.h"
 
 #include <cassert>
+#include <filesystem>
 
 #ifdef USE_IMGUI
 #include "imgui/imgui.h"
@@ -22,6 +23,31 @@ void ImGuiManager::Initialize([[maybe_unused]] WinApp* winApp, DirectXCommon* dx
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
+
+    // Load a system font that has Japanese glyphs (the default ImGui font has none).
+    // The first font that exists is used; if none is found we fall back to the default font.
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        const char* fontCandidates[] = {
+            "C:/Windows/Fonts/meiryo.ttc",
+            "C:/Windows/Fonts/YuGothM.ttc",
+            "C:/Windows/Fonts/msgothic.ttc",
+        };
+        constexpr float kFontSize = 16.0f;
+        ImFont* font = nullptr;
+        for (const char* path : fontCandidates) {
+            std::error_code errorCode;
+            if (std::filesystem::exists(path, errorCode)) {
+                font = io.Fonts->AddFontFromFileTTF(path, kFontSize, nullptr, io.Fonts->GetGlyphRangesJapanese());
+                if (font) {
+                    break;
+                }
+            }
+        }
+        if (!font) {
+            io.Fonts->AddFontDefault();
+        }
+    }
     ImGui::GetIO().IniFilename = nullptr; // パネル配置はコードで固定するのでiniは使わない
     ImGui_ImplWin32_Init(winApp->GetHwnd());
     // SRVヒープの0番をフォント用に使う（SrvManagerは1番から払い出す）

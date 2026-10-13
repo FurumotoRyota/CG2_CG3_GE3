@@ -57,6 +57,9 @@
     <ClInclude Include="core\Game.h">
       <Filter>core</Filter>
     </ClInclude>
+    <ClInclude Include="scene\ChangelogScene.h">
+      <Filter>scene</Filter>
+    </ClInclude>
     <ClInclude Include="scene\GameScene.h">
       <Filter>scene</Filter>
     </ClInclude>

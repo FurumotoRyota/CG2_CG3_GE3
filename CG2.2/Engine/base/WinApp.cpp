@@ -1,5 +1,13 @@
 ﻿#include "WinApp.h"
 #include <cassert>
+#include <shellapi.h>
+
+#pragma comment(lib, "shell32.lib")
+
+namespace
+{
+    std::vector<std::wstring> g_droppedFiles;
+}
 
 #ifdef USE_IMGUI
 #include "imgui/imgui.h"
@@ -15,6 +23,19 @@ LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     }
 #endif
     switch (msg) {
+    case WM_DROPFILES: {
+        HDROP drop = reinterpret_cast<HDROP>(wParam);
+        const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+        for (UINT i = 0; i < count; ++i) {
+            const UINT length = DragQueryFileW(drop, i, nullptr, 0);
+            std::wstring path(length + 1, L'\0');
+            DragQueryFileW(drop, i, path.data(), length + 1);
+            path.resize(length);
+            g_droppedFiles.push_back(path);
+        }
+        DragFinish(drop);
+        return 0;
+    }
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -51,7 +72,15 @@ void WinApp::Initialize(const wchar_t* title)
         nullptr);
     assert(hwnd_ != nullptr);
 
+    DragAcceptFiles(hwnd_, TRUE); // accept files dropped from Explorer
     ShowWindow(hwnd_, SW_SHOW);
+}
+
+std::vector<std::wstring> WinApp::TakeDroppedFiles()
+{
+    std::vector<std::wstring> files;
+    files.swap(g_droppedFiles);
+    return files;
 }
 
 bool WinApp::ProcessMessage()

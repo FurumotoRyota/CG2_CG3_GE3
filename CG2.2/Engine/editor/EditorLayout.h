@@ -33,6 +33,8 @@ namespace EditorLayout
         bool down = false;    // 左ボタンを押している（ドラッグ中はViewport外でもtrue）
         bool shift = false;   // Shiftキーを押している
         bool rightClicked = false; // このフレームにViewport上で右クリックされた（カメラ操作の開始）
+        bool middleClicked = false; // wheel button pressed on the viewport this frame
+        bool middleDown = false;    // wheel button held
         bool rightDown = false;    // 右ボタンを押している（ホールド中はViewport外でもtrue）
         Vector2 mouseDelta{ 0.0f, 0.0f }; // このフレームのマウス移動量（画面のピクセル）
         float wheel = 0.0f;   // Viewport上でのマウスホイール量（奥へ回すと正）。タッチパッドの2本指スライド・ピンチも含む
@@ -45,5 +47,9 @@ namespace EditorLayout
 
     // 拡大縮小用のハンドル（小さな四角）を描く。pointsはゲーム画面のピクセル座標
     void DrawViewportHandles(const Vector2* points, int count);
+
+    // Draw a position marker (crosshair + label) at a game-screen pixel position.
+    // If the position is outside the viewport, an arrow is drawn on the nearest edge instead.
+    void DrawViewportMarker(const Vector2& position, const char* label, unsigned int color, bool selected);
 }
 #endif // USE_IMGUI

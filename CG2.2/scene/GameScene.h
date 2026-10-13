@@ -14,6 +14,7 @@
 #include "math/Transform.h"
 #include "math/Vector2.h"
 #include "particle/ParticleEmitter.h"
+#include "video/VideoPlayer.h"
 #include "math/Vector4.h"
 
 struct DirectionalLight;
@@ -37,6 +38,8 @@ private:
     struct ObjectSlot
     {
         std::unique_ptr<GameObject> object;
+        std::unique_ptr<VideoPlayer> video; // set when this object is a 3D video screen
+        std::string videoName;
         int objIndex = 0;       // ImGuiのComboで選ばれている objFileList_ 内のインデックス
         int loadedObjIndex = 0; // 実際にモデルを読み込み済みのインデックス
         Vector4 konamiOriginalColor{ 1.0f, 1.0f, 1.0f, 1.0f }; // パーティーモード開始前の色
@@ -46,6 +49,8 @@ private:
     struct SpriteSlot
     {
         std::unique_ptr<Sprite> sprite;
+        std::unique_ptr<VideoPlayer> video; // set when this sprite plays a video
+        std::string videoName;
         int texIndex = 0;       // textureFileList_ 内のインデックス
         int loadedTexIndex = 0;
         Vector2 size{ 640.0f, 360.0f }; // 作成時の縦横サイズ（複製に使う）
@@ -68,8 +73,11 @@ private:
     };
 
     void ScanResources();
+    void ImportDroppedFiles(); // files dropped on the window: copy to resources/ and add to the scene
     int AddObject(int objIndex, const Vector3& translate);
     int AddSprite(int texIndex, const Vector2& size);
+    int AddVideoObject(const std::string& utf8Path); // video on a 3D plane (-1 on failure)
+    int AddVideoSprite(const std::string& utf8Path); // returns -1 if the video cannot be opened
     void DuplicateObject(int index);
     void DuplicateSprite(int index);
     int AddPlanes(int texIndex, const Vector3& position);
@@ -90,6 +98,8 @@ private:
 
     std::unique_ptr<Camera> camera_;
     DebugCamera* debugCamera_ = nullptr; // camera_の中身（操作の有効/無効の切り替え用。所有はcamera_）
+    bool showMarkers_ = true;             // show position markers for all objects/sprites
+    bool middleActive_ = false;           // wheel-button drag rotates the camera
     bool cameraActive_ = false;           // 右クリックホールドでカメラ操作中
     std::vector<ObjectSlot> objects_;
     std::vector<SpriteSlot> sprites_;
