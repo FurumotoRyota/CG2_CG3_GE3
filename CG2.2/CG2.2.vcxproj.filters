@@ -60,6 +60,15 @@
     <ClInclude Include="scene\ChangelogScene.h">
       <Filter>scene</Filter>
     </ClInclude>
+    <ClInclude Include="scene\GeometryShaderScene.h">
+      <Filter>scene</Filter>
+    </ClInclude>
+    <ClInclude Include="game2d\PlatformerGame.h">
+      <Filter>game</Filter>
+    </ClInclude>
+    <ClInclude Include="game2d\CubeMesh.h">
+      <Filter>game</Filter>
+    </ClInclude>
     <ClInclude Include="scene\GameScene.h">
       <Filter>scene</Filter>
     </ClInclude>
@@ -72,6 +81,9 @@
     <ClInclude Include="scene\TitleScene.h">
       <Filter>scene</Filter>
     </ClInclude>
+    <ClInclude Include="scene\StartupScene.h">
+      <Filter>scene</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -80,10 +92,22 @@
     <ClCompile Include="core\Game.cpp">
       <Filter>core</Filter>
     </ClCompile>
+    <ClCompile Include="scene\GeometryShaderScene.cpp">
+      <Filter>scene</Filter>
+    </ClCompile>
+    <ClCompile Include="scene\GameSceneIO.cpp">
+      <Filter>scene</Filter>
+    </ClCompile>
+    <ClCompile Include="game2d\PlatformerGame.cpp">
+      <Filter>game</Filter>
+    </ClCompile>
     <ClCompile Include="scene\GameScene.cpp">
       <Filter>scene</Filter>
     </ClCompile>
     <ClCompile Include="scene\TitleScene.cpp">
+      <Filter>scene</Filter>
+    </ClCompile>
+    <ClCompile Include="scene\StartupScene.cpp">
       <Filter>scene</Filter>
     </ClCompile>
     <ClCompile Include="game\GameObject.cpp">

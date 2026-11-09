@@ -1,5 +1,7 @@
 ﻿#include "SpriteCommon.h"
 #include "../base/DirectXCommon.h"
+#include "../3d/EnvironmentMap.h"
+#include "../3d/ShadowMap.h"
 
 #include <cassert>
 #include <cstring>
@@ -25,6 +27,8 @@ void SpriteCommon::PreDraw()
 {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
     pipeline_.Bind(commandList);
+    EnvironmentMap::Instance().Bind(commandList); // ルートシグネチャ上は必須（スプライトでは使わない）
+    ShadowMap::Instance().Bind(commandList);
     commandList->SetGraphicsRootConstantBufferView(
         BasicPipeline::kRootLight, dummyLightResource_->GetGPUVirtualAddress());
 }

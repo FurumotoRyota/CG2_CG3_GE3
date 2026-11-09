@@ -22,7 +22,19 @@ void BasicPipeline::Initialize(DirectXCommon* dxCommon, bool useDepth)
     descriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     descriptorRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[4] = {};
+    D3D12_DESCRIPTOR_RANGE environmentRange[1] = {};
+    environmentRange[0].BaseShaderRegister = 1;
+    environmentRange[0].NumDescriptors = 1;
+    environmentRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    environmentRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_DESCRIPTOR_RANGE shadowRange[1] = {};
+    shadowRange[0].BaseShaderRegister = 2;
+    shadowRange[0].NumDescriptors = 1;
+    shadowRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    shadowRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[6] = {};
     rootParameters[kRootMaterial].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[kRootMaterial].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[kRootMaterial].Descriptor.ShaderRegister = 0;
@@ -36,10 +48,18 @@ void BasicPipeline::Initialize(DirectXCommon* dxCommon, bool useDepth)
     rootParameters[kRootLight].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[kRootLight].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[kRootLight].Descriptor.ShaderRegister = 1;
+    rootParameters[kRootEnvironment].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[kRootEnvironment].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[kRootEnvironment].DescriptorTable.pDescriptorRanges = environmentRange;
+    rootParameters[kRootEnvironment].DescriptorTable.NumDescriptorRanges = _countof(environmentRange);
+    rootParameters[kRootShadow].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[kRootShadow].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[kRootShadow].DescriptorTable.pDescriptorRanges = shadowRange;
+    rootParameters[kRootShadow].DescriptorTable.NumDescriptorRanges = _countof(shadowRange);
     descriptionRootSignature.pParameters = rootParameters;
     descriptionRootSignature.NumParameters = _countof(rootParameters);
 
-    D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
+    D3D12_STATIC_SAMPLER_DESC staticSamplers[2] = {};
     staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
     staticSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
     staticSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -48,6 +68,16 @@ void BasicPipeline::Initialize(DirectXCommon* dxCommon, bool useDepth)
     staticSamplers[0].MaxLOD = D3D12_FLOAT32_MAX;
     staticSamplers[0].ShaderRegister = 0;
     staticSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    // s1：影の比較サンプラー（範囲外は白＝光が当たる扱い）
+    staticSamplers[1].Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    staticSamplers[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    staticSamplers[1].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    staticSamplers[1].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    staticSamplers[1].MaxLOD = D3D12_FLOAT32_MAX;
+    staticSamplers[1].ShaderRegister = 1;
+    staticSamplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     descriptionRootSignature.pStaticSamplers = staticSamplers;
     descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 

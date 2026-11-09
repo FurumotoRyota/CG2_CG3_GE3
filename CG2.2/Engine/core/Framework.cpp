@@ -2,10 +2,13 @@
 #include "../base/Logger.h"
 #include "../base/CrashHandler.h"
 #include "../editor/EditorLayout.h"
+#include "../3d/EnvironmentMap.h"
+#include "../3d/ShadowMap.h"
+#include "FrameStats.h"
 
 void Framework::Initialize()
 {
-    winApp_.Initialize(L"CG2");
+    winApp_.Initialize(L"Divergence Engine");
     frameRate_.Initialize(60); // fixed 60 FPS
     dxCommon_.Initialize(&winApp_);
 
@@ -14,6 +17,8 @@ void Framework::Initialize()
 
     srvManager_.Initialize(&dxCommon_);
     textureManager_.Initialize(&dxCommon_, &srvManager_);
+    EnvironmentMap::Instance().Initialize(&dxCommon_, &srvManager_); // 環境キューブマップ（スカイボックス・PBR反射）
+    ShadowMap::Instance().Initialize(&dxCommon_, &srvManager_);       // 影（シャドウマッピング）
     modelManager_.Initialize(&dxCommon_, &textureManager_);
     object3dCommon_.Initialize(&dxCommon_, &textureManager_, &modelManager_);
     spriteCommon_.Initialize(&dxCommon_, &textureManager_);
@@ -49,6 +54,8 @@ void Framework::Finalize()
 {
     sceneManager_.Finalize(); // GPU使用中のリソースを持つシーンを先に破棄する
 
+    ShadowMap::Instance().Finalize();
+    EnvironmentMap::Instance().Finalize(); // シングルトンはデバイスより後まで生き残るので、先にGPUリソースを解放する
     dxCommon_.Finalize();
     imguiManager_.Finalize();
     Logger::Log("Application End");
@@ -71,6 +78,7 @@ void Framework::Run()
         if (winApp_.ProcessMessage()) {
             break;
         }
+        FrameStats::BeginFrame(); // 前のフレームの描画量・時間をまとめて、数え直す
 
         input_.Update();
         audio_.Update();
@@ -78,13 +86,16 @@ void Framework::Run()
         Update();               // Game側の処理
         sceneManager_.Update(); // シーン切り替えの反映 → シーンのUpdate
 
-        imguiManager_.Begin();
-        DrawImGui();
+        {
+            FrameStats::ScopedMs uiTimer(FrameStats::Cur().uiMs);
+            imguiManager_.Begin();
+            DrawImGui();
 #ifdef USE_IMGUI
-        EditorLayout::DrawViewport(sceneTextureHandle_);
+            EditorLayout::DrawViewport(sceneTextureHandle_);
 #endif
-        sceneManager_.DrawImGui();
-        imguiManager_.End();
+            sceneManager_.DrawImGui();
+            imguiManager_.End();
+        }
 
 #ifdef USE_IMGUI
         // エディタ表示：ゲーム画面をオフスクリーンに描く → 画面にはImGuiだけを描く
@@ -94,7 +105,10 @@ void Framework::Run()
 
         dxCommon_.BeginBackBuffer();
         imguiManager_.Draw();
-        dxCommon_.PostDraw();
+        {
+            FrameStats::ScopedMs presentTimer(FrameStats::Cur().presentMs);
+            dxCommon_.PostDraw();
+        }
 #else
         // ImGuiなし：ゲーム画面をそのままウィンドウに描く
         dxCommon_.PreDraw();
@@ -102,7 +116,10 @@ void Framework::Run()
         dxCommon_.PostDraw();
 #endif
 
-        frameRate_.Update(); // wait until the frame time has passed (fixed FPS)
+        {
+            FrameStats::ScopedMs sleepTimer(FrameStats::Cur().sleepMs);
+            frameRate_.Update(); // wait until the frame time has passed (fixed FPS)
+        }
     }
 
     Finalize();

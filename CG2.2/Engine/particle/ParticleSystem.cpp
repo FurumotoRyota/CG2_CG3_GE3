@@ -1,5 +1,6 @@
 ﻿#include "ParticleSystem.h"
 #include "../base/DirectXCommon.h"
+#include "../core/FrameStats.h"
 #include "../base/SrvManager.h"
 #include "../base/TextureManager.h"
 #include "../base/Logger.h"
@@ -533,6 +534,6 @@ void ParticleSystem::Draw()
         const uint32_t texture = run.texture >= 0 ? static_cast<uint32_t>(run.texture) : dummyTexture_;
         commandList->SetGraphicsRootDescriptorTable(2, textureManager_->GetSrvHandleGPU(texture));
         commandList->SetGraphicsRoot32BitConstant(1, run.offset, 0);
-        commandList->DrawInstanced(6, run.count, 0, 0);
+        commandList->DrawInstanced(6, run.count, 0, 0); FrameStats::Count(FrameStats::kParticle, 6, run.count);
     }
 }

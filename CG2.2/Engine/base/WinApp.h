@@ -29,7 +29,7 @@ public:
     // Files dropped onto the window since the last call (full paths). The list is cleared on return.
     static std::vector<std::wstring> TakeDroppedFiles();
 
-    void Initialize(const wchar_t* title = L"CG2");
+    void Initialize(const wchar_t* title = L"Divergence Engine");
     void Finalize();
 
     // 溜まっているメッセージを処理する。WM_QUITを受け取ったら true を返す

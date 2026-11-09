@@ -37,3 +37,18 @@ Model* ModelManager::Load(const std::string& modelName)
     models_.emplace(modelName, std::move(model));
     return result;
 }
+
+Model* ModelManager::Register(const std::string& name, const ModelData& data)
+{
+    auto it = models_.find(name);
+    if (it != models_.end()) {
+        return it->second.get();
+    }
+
+    auto model = std::make_unique<Model>();
+    model->Initialize(dxCommon_, textureManager_, data);
+
+    Model* result = model.get();
+    models_.emplace(name, std::move(model));
+    return result;
+}

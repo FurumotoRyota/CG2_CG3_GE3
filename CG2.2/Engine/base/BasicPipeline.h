@@ -18,6 +18,8 @@ public:
     static constexpr UINT kRootTransform = 1; // b0 (VS) TransformationMatrix
     static constexpr UINT kRootTexture = 2;   // t0 (PS) テクスチャ
     static constexpr UINT kRootLight = 3;     // b1 (PS) DirectionalLight
+    static constexpr UINT kRootShadow = 5;      // t2 (PS) 影テクスチャ（ShadowMap::Bindで設定）
+    static constexpr UINT kRootEnvironment = 4; // t1 (PS) 環境キューブマップ（EnvironmentMap::Bindで設定）
 
     // useDepth：深度テストを使うか（3Dはtrue、常に手前に重ねる2Dスプライトはfalse）
     // ブレンドモードごとのPSOを全て作る

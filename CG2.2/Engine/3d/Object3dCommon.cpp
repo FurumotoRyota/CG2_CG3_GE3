@@ -1,5 +1,7 @@
 ﻿#include "Object3dCommon.h"
 #include "../base/DirectXCommon.h"
+#include "EnvironmentMap.h"
+#include "ShadowMap.h"
 
 #include <cassert>
 #include <cmath>
@@ -21,6 +23,9 @@ void Object3dCommon::Initialize(DirectXCommon* dxCommon, TextureManager* texture
     directionalLightData_->direction = { 0.0f, -1.0f, 0.0f };
     directionalLightData_->intensity = 1.0f;
     directionalLightData_->cameraPosition = { 0.0f, 0.0f, 0.0f };
+    directionalLightData_->shadowBias = 0.002f;
+    directionalLightData_->shadowStrength = 0.7f;
+    directionalLightData_->shadowEnabled = 1;
     directionalLightData_->lightCount = 0; // 配置したライトはGameSceneが毎フレーム書き込む
 }
 
@@ -28,6 +33,8 @@ void Object3dCommon::PreDraw()
 {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
     pipeline_.Bind(commandList);
+    EnvironmentMap::Instance().Bind(commandList);
+    ShadowMap::Instance().Bind(commandList);
     commandList->SetGraphicsRootConstantBufferView(
         BasicPipeline::kRootLight, directionalLightResource_->GetGPUVirtualAddress());
 }

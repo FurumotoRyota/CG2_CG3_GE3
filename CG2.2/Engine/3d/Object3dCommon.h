@@ -34,12 +34,17 @@ public:
     // ImGuiなどから光源を編集する用（ポイントライト・スポットライトも同じ構造体に入っている）
     DirectionalLight* GetDirectionalLight() const { return directionalLightData_; }
 
+    // 影用：光から見たビュー射影行列（GameSceneが毎フレーム設定し、Object3d::UpdateがLightWVPに使う）
+    void SetLightViewProjection(const Matrix4x4& m) { lightViewProjection_ = m; }
+    const Matrix4x4& GetLightViewProjection() const { return lightViewProjection_; }
+
 private:
     DirectXCommon* dxCommon_ = nullptr;
     TextureManager* textureManager_ = nullptr;
     ModelManager* modelManager_ = nullptr;
 
     BasicPipeline pipeline_;
+    Matrix4x4 lightViewProjection_ = Matrix4x4::MakeIdentity4x4();
 
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
     DirectionalLight* directionalLightData_ = nullptr;

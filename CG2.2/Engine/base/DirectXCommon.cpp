@@ -52,7 +52,7 @@ void DirectXCommon::InitializeDevice()
 #ifdef _DEBUG
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(debugController_.GetAddressOf())))) {
         debugController_->EnableDebugLayer();
-        debugController_->SetEnableGPUBasedValidation(TRUE);
+        debugController_->SetEnableGPUBasedValidation(FALSE); // 极端に重いため無効化（デバッグレイヤー自体は有効）
         Logger::Log("D3D12 Debug Layer Enabled");
     }
 #endif

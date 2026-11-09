@@ -1,0 +1,413 @@
+// GameScene のシーンファイル（保存・読み込み）
+// 1行が1つの要素（オブジェクト・スプライト・ライトなど）のテキストファイル。
+// 先頭の単語（タグ）で何の行かを見分ける。知らないタグの行は読み飛ばすので、あとから項目を足しても古いファイルが読める。
+#include "GameScene.h"
+
+#include <algorithm>
+#include <cmath>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+
+#include "3d/Model.h"
+#include "3d/Object3dCommon.h"
+#include "particle/ParticleSystem.h"
+
+namespace
+{
+    constexpr int kSceneVersion = 2;
+
+    // 値を読み込む。読めたときだけ代入する（行の後ろの項目が足りない古い形式でも、既定値のまま使えるようにする）
+    template <class T>
+    void ReadOpt(std::istringstream& in, T& value)
+    {
+        T temp{};
+        if (in >> temp) {
+            value = temp;
+        }
+    }
+
+    void ReadString(std::istringstream& in, std::string& value)
+    {
+        std::string temp;
+        if (in >> std::quoted(temp)) {
+            value = temp;
+        }
+    }
+
+    // Vector3 / Vector4 / Transform の読み書き
+    void Write(std::ostream& out, const Vector3& v) { out << v.x << ' ' << v.y << ' ' << v.z << ' '; }
+    void Write(std::ostream& out, const Vector4& v) { out << v.x << ' ' << v.y << ' ' << v.z << ' ' << v.w << ' '; }
+    void Write(std::ostream& out, const Transform& t) { Write(out, t.Scale); Write(out, t.Rotate); Write(out, t.Translate); }
+
+    void Read(std::istringstream& in, Vector3& v) { ReadOpt(in, v.x); ReadOpt(in, v.y); ReadOpt(in, v.z); }
+    void Read(std::istringstream& in, Vector4& v) { ReadOpt(in, v.x); ReadOpt(in, v.y); ReadOpt(in, v.z); ReadOpt(in, v.w); }
+    void Read(std::istringstream& in, Transform& t) { Read(in, t.Scale); Read(in, t.Rotate); Read(in, t.Translate); }
+}
+
+//==================================================
+// 保存
+//==================================================
+bool GameScene::SaveScene(const char* path)
+{
+    if (playing_) {
+        return false; // 再生中は動いた後の位置になっているので保存しない
+    }
+    std::ofstream out(path);
+    if (!out) {
+        return false;
+    }
+    out << std::setprecision(9);
+
+    // テクスチャ番号（0:なし / i+1）→ ファイル名
+    auto texName = [&](int index) {
+        return (index > 0 && index - 1 < static_cast<int>(textureFileList_.size())) ? textureFileList_[index - 1] : std::string();
+        };
+
+    out << "scene " << kSceneVersion << "\n";
+
+    // ゲームモードと、その調整値
+    out << "mode " << gameMode_ << ' ' << pfPpu_ << ' ' << pfYawDeg_ << ' ' << pfPitchDeg_ << "\n";
+    const pf::JumpParams& jp = pfGame_.settings.jump;
+    out << "jump " << jp.runSpeed << ' ' << jp.jumpSpeed << ' ' << jp.gravityScaleUp << ' ' << jp.gravityScaleDown << ' '
+        << jp.maxFallSpeed << ' ' << jp.apexFloat << ' ' << jp.apexThreshold << ' ' << jp.groundAccel << ' '
+        << jp.groundFriction << ' ' << jp.airAccel << ' ' << jp.airDrag << ' ' << jp.jumpCut << ' ' << jp.stompBounce << "\n";
+    out << "blockstyle " << std::quoted(texName(blockTexIndex_)) << ' ';
+    Write(out, blockTint_);
+    out << "\n";
+
+    // 太陽の光と影
+    if (directionalLight_) {
+        out << "dirlight ";
+        Write(out, directionalLight_->color);
+        Write(out, directionalLight_->direction);
+        out << directionalLight_->intensity << ' ' << directionalLight_->shadowBias << ' ' << directionalLight_->shadowStrength << ' '
+            << directionalLight_->shadowEnabled << ' ' << shadowRange_ << ' ';
+        Write(out, shadowCenter_);
+        out << "\n";
+    }
+
+    // 置いたライト
+    for (const LightSlot& l : lights_) {
+        out << "light " << l.type << ' ';
+        Write(out, l.color);
+        Write(out, l.position);
+        Write(out, l.direction);
+        out << l.intensity << ' ' << l.range << ' ' << l.decay << ' ' << l.outerDeg << ' ' << l.innerDeg << "\n";
+    }
+
+    // 3Dオブジェクト（動画は保存しない）
+    for (ObjectSlot& slot : objects_) {
+        if (slot.video) {
+            continue;
+        }
+        Object3d& o = slot.object->GetObject3d();
+        const Material& m = *o.GetMaterial();
+        out << "obj " << std::quoted(objFileList_[slot.objIndex]) << ' ';
+        Write(out, o.GetTransform());
+        Write(out, m.color);
+        out << slot.role << ' ' << (slot.shield ? 1 : 0) << ' ' << (o.GetCastShadow() ? 1 : 0) << ' ' << (m.receiveShadow > 0.5f ? 1 : 0) << ' '
+            << std::quoted(texName(slot.texOverride)) << ' '
+            << m.lightingMode << ' ' << m.specularMode << ' ' << m.shininess << ' ' << m.roughness << ' ' << m.metallic << ' '
+            << static_cast<int>(o.GetBlendMode()) << ' ' << m.alphaCutoff << ' ' << (o.IsDoubleSided() ? 1 : 0) << ' ';
+        Write(out, o.GetUvTransform());
+        out << std::quoted(std::string(slot.name)) << ' ' << slot.pool << ' ' << slot.prefabSpeed << ' ' << slot.prefabLife << ' ' << slot.behaviours.size();
+        for (const Behaviour& bh : slot.behaviours) {
+            out << ' ' << PartId(bh.type) << ' ' << bh.a << ' ' << bh.b << ' ' << (bh.autoFire ? 1 : 0) << ' ' << std::quoted(std::string(bh.target)) << ' ' << bh.c;
+        }
+        // ブロックのチップ（種類・マス専用の色）。古いファイルにはない
+        out << ' ' << slot.chip << ' ' << (slot.ownColor ? 1 : 0) << ' ' << slot.ownTint.x << ' ' << slot.ownTint.y << ' ' << slot.ownTint.z << ' ' << slot.ownTint.w;
+        out << "\n";
+    }
+
+    // スプライト（動画は保存しない）
+    for (SpriteSlot& slot : sprites_) {
+        if (slot.video) {
+            continue;
+        }
+        Sprite& s = *slot.sprite;
+        out << "sprite " << std::quoted(textureFileList_[slot.texIndex]) << ' ' << s.GetSize().x << ' ' << s.GetSize().y << ' ';
+        Write(out, s.GetTransform());
+        Write(out, s.GetMaterial()->color);
+        out << static_cast<int>(s.GetBlendMode()) << ' ' << s.GetMaterial()->alphaCutoff << ' ';
+        Write(out, s.GetUvTransform());
+        out << "\n";
+    }
+
+    // 板ポリの大量配置
+    for (PlanesSlot& slot : planes_) {
+        const InstancedPlanes::Settings& s = slot.planes->GetSettings();
+        out << "planes " << std::quoted(textureFileList_[slot.texIndex]) << ' ' << s.count << ' ';
+        Write(out, s.base);
+        Write(out, s.spacing);
+        Write(out, s.rotateStep);
+        Write(out, s.color);
+        out << "\n";
+    }
+
+    // パーティクルエミッター
+    for (const ParticleEmitter& e : emitters_) {
+        out << "emitter " << static_cast<int>(e.preset) << ' ';
+        Write(out, e.position);
+        out << (e.enabled ? 1 : 0) << ' ' << static_cast<int>(e.mode) << ' ' << e.rate << ' ' << e.burstCount << ' ' << e.burstInterval << ' '
+            << e.radius << ' ' << (e.emitFlat ? 1 : 0) << ' ';
+        Write(out, e.direction);
+        out << e.spreadDeg << ' ' << e.speedMin << ' ' << e.speedMax << ' ' << e.lifeMin << ' ' << e.lifeMax << ' '
+            << e.gravity << ' ' << e.drag << ' ' << e.wobble << ' ' << e.sizeStart << ' ' << e.sizeEnd << ' ' << e.sizeRandom << ' ';
+        Write(out, e.colorStart);
+        Write(out, e.colorEnd);
+        out << (e.rainbow ? 1 : 0) << ' ' << static_cast<int>(e.shape) << ' '
+            << std::quoted(e.texturePath) << ' ' << std::quoted(e.sparkTexturePath) << ' '
+            << (e.additive ? 1 : 0) << ' ' << (e.fireworks ? 1 : 0) << ' ' << e.sparkCount << "\n";
+    }
+
+    return static_cast<bool>(out);
+}
+
+//==================================================
+// 読み込み
+//==================================================
+bool GameScene::LoadScene(const char* path)
+{
+    std::ifstream file(path);
+    if (!file) {
+        return false; // ファイルがなければ、今のシーンはそのまま残す
+    }
+
+    // 今のシーンを片づける（読み込みで全部入れ替える）
+    objects_.clear();
+    sprites_.clear();
+    planes_.clear();
+    emitters_.clear();
+    lights_.clear();
+    selection_ = {};
+    dragMode_ = DragMode::None;
+    mapUndo_.clear();
+    mapStroke_.clear();
+    ctx_->particleSystem->Clear();
+
+    // ファイル名 → テクスチャ番号（0:見つからない / i+1）
+    auto texIndexOf = [&](const std::string& name) {
+        const auto it = std::find(textureFileList_.begin(), textureFileList_.end(), name);
+        return it == textureFileList_.end() ? 0 : static_cast<int>(it - textureFileList_.begin()) + 1;
+        };
+
+    bool legacyPlatformer = false; // 古いファイルで「2D軸アクション」だったか（部品を自動で付ける）
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream in(line);
+        std::string tag;
+        if (!(in >> tag)) {
+            continue;
+        }
+
+        if (tag == "mode") {
+            int legacyMode = 0;
+            ReadOpt(in, legacyMode);
+            legacyPlatformer = (legacyMode == 1);
+            gameMode_ = (std::max)(0, (std::min)(2, legacyMode));
+            ReadOpt(in, pfPpu_);
+            ReadOpt(in, pfYawDeg_);
+            ReadOpt(in, pfPitchDeg_);
+        }
+        else if (tag == "jump") {
+            pf::JumpParams& jp = pfGame_.settings.jump;
+            ReadOpt(in, jp.runSpeed); ReadOpt(in, jp.jumpSpeed); ReadOpt(in, jp.gravityScaleUp); ReadOpt(in, jp.gravityScaleDown);
+            ReadOpt(in, jp.maxFallSpeed); ReadOpt(in, jp.apexFloat); ReadOpt(in, jp.apexThreshold); ReadOpt(in, jp.groundAccel);
+            ReadOpt(in, jp.groundFriction); ReadOpt(in, jp.airAccel); ReadOpt(in, jp.airDrag); ReadOpt(in, jp.jumpCut); ReadOpt(in, jp.stompBounce);
+        }
+        else if (tag == "blockstyle") {
+            std::string texture;
+            ReadString(in, texture);
+            blockTexIndex_ = texIndexOf(texture);
+            Read(in, blockTint_);
+            blockStyleDirty_ = true;
+        }
+        else if (tag == "dirlight") {
+            if (directionalLight_) {
+                Read(in, directionalLight_->color);
+                Read(in, directionalLight_->direction);
+                ReadOpt(in, directionalLight_->intensity);
+                ReadOpt(in, directionalLight_->shadowBias);
+                ReadOpt(in, directionalLight_->shadowStrength);
+                ReadOpt(in, directionalLight_->shadowEnabled);
+                ReadOpt(in, shadowRange_);
+                Read(in, shadowCenter_);
+                directionalLight_->direction = Normalize(directionalLight_->direction);
+            }
+        }
+        else if (tag == "light") {
+            LightSlot l;
+            ReadOpt(in, l.type);
+            Read(in, l.color);
+            Read(in, l.position);
+            Read(in, l.direction);
+            ReadOpt(in, l.intensity);
+            ReadOpt(in, l.range);
+            ReadOpt(in, l.decay);
+            ReadOpt(in, l.outerDeg);
+            ReadOpt(in, l.innerDeg);
+            lights_.push_back(l);
+        }
+        else if (tag == "obj") {
+            std::string name;
+            ReadString(in, name);
+            const auto it = std::find(objFileList_.begin(), objFileList_.end(), name);
+            if (it == objFileList_.end()) {
+                continue; // モデルが見つからないものは飛ばす
+            }
+            Transform t{ { 1, 1, 1 }, { 0, 0, 0 }, { 0, 0, 0 } };
+            Vector4 color{ 1, 1, 1, 1 };
+            Read(in, t);
+            Read(in, color);
+            int role = 0, shield = 0, cast = 1, recv = 1;
+            std::string texture;
+            ReadOpt(in, role); ReadOpt(in, shield); ReadOpt(in, cast); ReadOpt(in, recv);
+            ReadString(in, texture);
+
+            const int n = AddObject(static_cast<int>(it - objFileList_.begin()), t.Translate);
+            ObjectSlot& slot = objects_[n];
+            Object3d& o = slot.object->GetObject3d();
+            Material& m = *o.GetMaterial();
+            o.GetTransform() = t;
+            m.color = color;
+            slot.konamiOriginalColor = color;
+            slot.role = role;
+            slot.shield = shield != 0;
+            slot.texOverride = texIndexOf(texture);
+            o.SetCastShadow(cast != 0);
+            m.receiveShadow = recv ? 1.0f : 0.0f;
+
+            // ここから後ろは新しい形式で足した項目（なければ既定値のまま）
+            ReadOpt(in, m.lightingMode);
+            ReadOpt(in, m.specularMode);
+            ReadOpt(in, m.shininess);
+            ReadOpt(in, m.roughness);
+            ReadOpt(in, m.metallic);
+            int blend = static_cast<int>(o.GetBlendMode());
+            ReadOpt(in, blend);
+            o.SetBlendMode(static_cast<BlendMode>(blend));
+            ReadOpt(in, m.alphaCutoff);
+            int doubleSided = o.IsDoubleSided() ? 1 : 0;
+            ReadOpt(in, doubleSided);
+            o.SetDoubleSided(doubleSided != 0);
+            if (in) {
+                Read(in, o.GetUvTransform());
+            }
+            if (in) {
+                std::string objName;
+                ReadString(in, objName);
+                snprintf(slot.name, sizeof(slot.name), "%s", objName.c_str());
+                ReadOpt(in, slot.pool);
+                ReadOpt(in, slot.prefabSpeed);
+                ReadOpt(in, slot.prefabLife);
+                slot.pool = (std::max)(1, (std::min)(512, slot.pool));
+                int behaviourCount = 0;
+                ReadOpt(in, behaviourCount);
+                for (int k = 0; k < behaviourCount && k < 16 && in; ++k) {
+                    Behaviour bh;
+                    int autoFire = 0;
+                    std::string target;
+                    std::string partId;
+                    ReadString(in, partId);
+                    ReadOpt(in, bh.a);
+                    ReadOpt(in, bh.b);
+                    ReadOpt(in, autoFire);
+                    ReadString(in, target);
+                    if (partId.find_first_not_of("0123456789") != std::string::npos) {
+                        ReadOpt(in, bh.c); // 名前で保存した形式だけ、3つめの値がある（古い番号形式にはない）
+                    }
+                    bh.autoFire = autoFire != 0;
+                    snprintf(bh.target, sizeof(bh.target), "%s", target.c_str());
+                    bh.type = PartIndexById(partId);
+                    if (bh.type >= 0) { // 知らない部品名は読み飛ばす
+                        slot.behaviours.push_back(bh);
+                    }
+                }
+                // ブロックのチップ（古いファイルにはないので、読めたときだけ使う）
+                int ownColor = 0;
+                ReadOpt(in, slot.chip);
+                ReadOpt(in, ownColor);
+                ReadOpt(in, slot.ownTint.x);
+                ReadOpt(in, slot.ownTint.y);
+                ReadOpt(in, slot.ownTint.z);
+                ReadOpt(in, slot.ownTint.w);
+                slot.ownColor = ownColor != 0;
+                slot.chip = (std::max)(0, (std::min)(15, slot.chip));
+            }
+            if (legacyPlatformer && slot.behaviours.empty()) {
+                AttachRoleBehaviours(n); // 古いシーンは、役割に合う2Dアクションの部品を付けて引き継ぐ
+            }
+        }
+        else if (tag == "sprite") {
+            std::string texture;
+            ReadString(in, texture);
+            const int texIndex = texIndexOf(texture) - 1;
+            if (texIndex < 0) {
+                continue;
+            }
+            Vector2 size{ 200.0f, 200.0f };
+            ReadOpt(in, size.x);
+            ReadOpt(in, size.y);
+            const int n = AddSprite(texIndex, size);
+            Sprite& s = *sprites_[n].sprite;
+            Read(in, s.GetTransform());
+            Read(in, s.GetMaterial()->color);
+            int blend = static_cast<int>(s.GetBlendMode());
+            ReadOpt(in, blend);
+            s.SetBlendMode(static_cast<BlendMode>(blend));
+            ReadOpt(in, s.GetMaterial()->alphaCutoff);
+            Read(in, s.GetUvTransform());
+        }
+        else if (tag == "planes") {
+            std::string texture;
+            ReadString(in, texture);
+            const int texIndex = texIndexOf(texture) - 1;
+            if (texIndex < 0) {
+                continue;
+            }
+            const int n = AddPlanes(texIndex, { 0.0f, 0.0f, 0.0f });
+            InstancedPlanes::Settings& s = planes_[n].planes->GetSettings();
+            ReadOpt(in, s.count);
+            s.count = (std::max)(1, (std::min)(static_cast<int>(InstancedPlanes::kMaxInstances), s.count));
+            Read(in, s.base);
+            Read(in, s.spacing);
+            Read(in, s.rotateStep);
+            Read(in, s.color);
+        }
+        else if (tag == "emitter") {
+            int preset = 0;
+            ReadOpt(in, preset);
+            preset = (std::max)(0, (std::min)(kParticlePresetCount - 1, preset));
+            ParticleEmitter e;
+            e.ApplyPreset(static_cast<ParticlePreset>(preset)); // まず種類の標準値にして、ファイルの値で上書きする
+            int enabled = e.enabled, mode = static_cast<int>(e.mode), emitFlat = e.emitFlat, rainbow = e.rainbow;
+            int shape = static_cast<int>(e.shape), additive = e.additive, fireworks = e.fireworks;
+            Read(in, e.position);
+            ReadOpt(in, enabled); ReadOpt(in, mode); ReadOpt(in, e.rate); ReadOpt(in, e.burstCount); ReadOpt(in, e.burstInterval);
+            ReadOpt(in, e.radius); ReadOpt(in, emitFlat);
+            Read(in, e.direction);
+            ReadOpt(in, e.spreadDeg); ReadOpt(in, e.speedMin); ReadOpt(in, e.speedMax); ReadOpt(in, e.lifeMin); ReadOpt(in, e.lifeMax);
+            ReadOpt(in, e.gravity); ReadOpt(in, e.drag); ReadOpt(in, e.wobble);
+            ReadOpt(in, e.sizeStart); ReadOpt(in, e.sizeEnd); ReadOpt(in, e.sizeRandom);
+            Read(in, e.colorStart);
+            Read(in, e.colorEnd);
+            ReadOpt(in, rainbow); ReadOpt(in, shape);
+            ReadString(in, e.texturePath);
+            ReadString(in, e.sparkTexturePath);
+            ReadOpt(in, additive); ReadOpt(in, fireworks); ReadOpt(in, e.sparkCount);
+            e.enabled = enabled != 0;
+            e.mode = static_cast<EmitMode>((std::max)(0, (std::min)(1, mode)));
+            e.emitFlat = emitFlat != 0;
+            e.rainbow = rainbow != 0;
+            e.shape = static_cast<ParticleShape>((std::max)(0, (std::min)(2, shape)));
+            e.additive = additive != 0;
+            e.fireworks = fireworks != 0;
+            emitters_.push_back(e);
+        }
+        // それ以外のタグ（"scene" など）は読み飛ばす
+    }
+
+    blockStyleDirty_ = true; // ブロックの見た目は、読み込み後の最初のUpdateで反映する
+    return true;
+}

@@ -3,6 +3,7 @@
 #include "../3d/VertexData.h"
 #include "../base/BasicPipeline.h"
 #include "../base/DirectXCommon.h"
+#include "../core/FrameStats.h"
 
 #include <cassert>
 
@@ -36,6 +37,7 @@ void Sprite::Initialize(SpriteCommon* common, const std::string& texturePath, co
     wvpData_->WVP = Matrix4x4::MakeIdentity4x4();
     wvpData_->World = Matrix4x4::MakeIdentity4x4();
     wvpData_->WorldInverseTranspose = Matrix4x4::MakeIdentity4x4();
+    wvpData_->LightWVP = Matrix4x4::MakeIdentity4x4();
 }
 
 void Sprite::SetTexture(const std::string& texturePath)
@@ -136,5 +138,5 @@ void Sprite::Draw()
     commandList->SetGraphicsRootDescriptorTable(
         BasicPipeline::kRootTexture,
         useExternalTexture_ ? externalSrv_ : common_->GetTextureManager()->GetSrvHandleGPU(textureHandle_));
-    commandList->DrawInstanced(6, 1, 0, 0);
+    commandList->DrawInstanced(6, 1, 0, 0); FrameStats::Count(FrameStats::kSprite, 6);
 }

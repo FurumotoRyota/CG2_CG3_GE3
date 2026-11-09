@@ -23,6 +23,9 @@ public:
     // overrideSrv: use this texture for every sub mesh instead of the model's own textures (e.g. a video frame)
     void Draw(ID3D12GraphicsCommandList* commandList, const D3D12_GPU_DESCRIPTOR_HANDLE* overrideSrv = nullptr) const;
 
+    // 形だけ描く（影の描画パス用。テクスチャは設定しない）
+    void DrawGeometry(ID3D12GraphicsCommandList* commandList) const;
+
     // モデル座標系での外接ボックス（Viewportでのクリック判定・選択枠の表示に使う）
     const Vector3& GetBoundsMin() const { return boundsMin_; }
     const Vector3& GetBoundsMax() const { return boundsMax_; }

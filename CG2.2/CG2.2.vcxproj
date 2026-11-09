@@ -142,17 +142,46 @@
   <ItemGroup>
     <ClInclude Include="core\Game.h" />
     <ClInclude Include="game\GameObject.h" />
+    <ClInclude Include="game\GameObjectPool.h" />
+    <ClInclude Include="game\MapData.h" />
+    <ClInclude Include="game\DustBurst.h" />
+    <ClInclude Include="game\GridNav.h" />
+    <ClInclude Include="game\SaloonDoors.h" />
+    <ClInclude Include="game\Tumbleweeds.h" />
+    <ClInclude Include="game\MapRenderer.h" />
     <ClInclude Include="game\SpinningObject.h" />
     <ClInclude Include="scene\ChangelogScene.h" />
     <ClInclude Include="scene\GameScene.h" />
+    <ClInclude Include="scene\PoolTestScene.h" />
+    <ClInclude Include="scene\WesternShooterCommon.h" />
+    <ClInclude Include="scene\WesternShooterScene.h" />
+    <ClInclude Include="scene\MapEditorScene.h" />
+    <ClInclude Include="scene\GeometryShaderScene.h" />
+    <ClInclude Include="game2d\PlatformerGame.h" />
+    <ClInclude Include="game2d\CubeMesh.h" />
     <ClInclude Include="scene\TitleScene.h" />
+    <ClInclude Include="scene\StartupScene.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="core\Game.cpp" />
     <ClCompile Include="game\GameObject.cpp" />
+    <ClCompile Include="game\MapData.cpp" />
+    <ClCompile Include="game\DustBurst.cpp" />
+    <ClCompile Include="game\GridNav.cpp" />
+    <ClCompile Include="game\SaloonDoors.cpp" />
+    <ClCompile Include="game\Tumbleweeds.cpp" />
+    <ClCompile Include="game\MapRenderer.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="scene\GameScene.cpp" />
+    <ClCompile Include="scene\PoolTestScene.cpp" />
+    <ClCompile Include="scene\WesternShooterEnemyAI.cpp" />
+    <ClCompile Include="scene\WesternShooterScene.cpp" />
+    <ClCompile Include="scene\MapEditorScene.cpp" />
+    <ClCompile Include="scene\GeometryShaderScene.cpp" />
+    <ClCompile Include="scene\GameSceneIO.cpp" />
+    <ClCompile Include="game2d\PlatformerGame.cpp" />
     <ClCompile Include="scene\TitleScene.cpp" />
+    <ClCompile Include="scene\StartupScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Engine\EngineLib.vcxproj">

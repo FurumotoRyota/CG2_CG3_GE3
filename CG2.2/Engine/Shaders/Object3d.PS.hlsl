@@ -9,7 +9,8 @@ struct Material
     int specularMode;  // 0:なし 1:Phong 2:Blinn-Phong 3:PBR(GGX)
     float roughness;   // PBR：粗さ
     float metallic;    // PBR：金属度
-    float2 padding;
+    float receiveShadow; // 影を受けるか
+    float padding;
     float4x4 uvTransform;
 };
 
@@ -42,12 +43,17 @@ struct LightBuffer
 
     // 配置したライト（ポイント / スポット）
     int lightCount;
-    float3 padding1;
+    float shadowBias;
+    float shadowStrength;
+    int shadowEnabled;
     LightData lights[16];
 };
 ConstantBuffer<LightBuffer> gLight : register(b1);
 
 Texture2D<float4> gTexture : register(t0);
+Texture2D<float> gShadowMap : register(t2);           // ライトから見た深度
+SamplerComparisonState gShadowSampler : register(s1); // 深度の比較サンプラー
+TextureCube<float4> gEnvironment : register(t1); // 環境キューブマップ（PBRの反射・拡散に使う）
 SamplerState gSampler : register(s0);
 
 struct PixelShaderOutput
@@ -106,14 +112,36 @@ float3 ComputePbrLight(float3 N, float3 V, float3 L, float3 lit, float3 albedo)
     return (diffuse + specular * kPi * NdotL) * lit;
 }
 
-// 空の簡易環境光（PBR用）：上が青空、下が地面色。反射・拡散の両方に使う
-float3 SkyColor(float3 dir)
+// ディレクショナルライトの影：1=光が当たる、0=影。3x3でぼかして縁をなめらかにする
+float ComputeShadow(float4 lightPos, float3 N, float3 lightDir)
 {
-    float t = saturate(dir.y * 0.5f + 0.5f);
-    float3 ground = float3(0.18f, 0.16f, 0.14f);
-    float3 horizon = float3(0.55f, 0.58f, 0.62f);
-    float3 sky = float3(0.35f, 0.55f, 0.95f);
-    return t < 0.5f ? lerp(ground, horizon, t * 2.0f) : lerp(horizon, sky, (t - 0.5f) * 2.0f);
+    if (gLight.shadowEnabled == 0 || gMaterial.receiveShadow < 0.5f)
+    {
+        return 1.0f;
+    }
+    float3 p = lightPos.xyz / lightPos.w;
+    float2 uv = float2(p.x * 0.5f + 0.5f, -p.y * 0.5f + 0.5f);
+    if (p.z > 1.0f)
+    {
+        return 1.0f;
+    }
+
+    // 光に対して斜めの面ほどバイアスを大きくして、縞模様(シャドウアクネ)を防ぐ
+    float NdotL = saturate(dot(N, -lightDir));
+    float bias = gLight.shadowBias * (1.0f + 3.0f * (1.0f - NdotL));
+    float reference = p.z - bias;
+
+    float texel = 1.0f / 2048.0f;
+    float sum = 0.0f;
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            sum += gShadowMap.SampleCmpLevelZero(gShadowSampler, uv + float2(x, y) * texel, reference);
+        }
+    }
+    float lit = sum / 9.0f;
+    return lerp(1.0f, lit, saturate(gLight.shadowStrength));
 }
 
 // 1つのライトによる色。L はライトの進む向き（光源 → 表面）、attenuation は距離などによる減衰
@@ -183,7 +211,8 @@ PixelShaderOutput main(VertexShaderOutput input, bool isFrontFace : SV_IsFrontFa
         float3 result = float3(0.0f, 0.0f, 0.0f);
 
         // ディレクショナルライト（減衰なし）
-        result += ComputeLight(normal, toEye, normalize(gLight.direction), gLight.color.rgb, gLight.intensity, 1.0f, albedo);
+        float shadow = ComputeShadow(input.lightPos, normal, normalize(gLight.direction));
+        result += shadow * ComputeLight(normal, toEye, normalize(gLight.direction), gLight.color.rgb, gLight.intensity, 1.0f, albedo);
 
         // 配置したライト：距離で暗くなる。スポットはさらに円錐の角度でも暗くなる
         for (int i = 0; i < gLight.lightCount; ++i)
@@ -214,10 +243,15 @@ PixelShaderOutput main(VertexShaderOutput input, bool isFrontFace : SV_IsFrontFa
             float NdotV = saturate(dot(normal, toEye));
             float3 F = F0 + (max(float3(1.0f - rough, 1.0f - rough, 1.0f - rough), F0) - F0) * pow(1.0f - NdotV, 5.0f);
 
+            // 環境キューブマップ：粗いほどぼやけたミップを読む（鏡面）。拡散は一番ぼやけたミップ（周囲の平均）
+            uint envWidth, envHeight, envLevels;
+            gEnvironment.GetDimensions(0, envWidth, envHeight, envLevels);
+            float maxMip = (float)(envLevels - 1);
+
             float3 R = reflect(-toEye, normal);
-            // 粗いほど反射はぼやけて平均的な色に近づく
-            float3 env = lerp(SkyColor(R), SkyColor(normal) * 0.7f + 0.1f, rough * rough);
-            float3 ambientDiffuse = (1.0f - F) * (1.0f - metallic) * albedo * SkyColor(normal) * 0.5f;
+            float3 env = gEnvironment.SampleLevel(gSampler, R, rough * maxMip).rgb;
+            float3 irradiance = gEnvironment.SampleLevel(gSampler, normal, max(maxMip - 1.0f, 0.0f)).rgb;
+            float3 ambientDiffuse = (1.0f - F) * (1.0f - metallic) * albedo * irradiance * 0.6f;
             result += ambientDiffuse + env * F;
         }
 

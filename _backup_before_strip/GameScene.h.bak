@@ -1,0 +1,448 @@
+﻿#pragma once
+#include <functional>
+#include <memory>
+#include <random>
+#include <string>
+#include <vector>
+
+#include "scene/Scene.h"
+#include "2d/Sprite.h"
+#include "3d/InstancedPlanes.h"
+#include "../game/GameObject.h"
+#include "camera/Camera.h"
+#include "camera/DebugCamera.h"
+#include "camera/CameraEffects.h"
+#include "input/GameInput.h"
+#include "input/KonamiCommand.h"
+#include "math/Transform.h"
+#include "math/Vector2.h"
+#include "particle/ParticleEmitter.h"
+#include "video/VideoPlayer.h"
+#include "math/Vector4.h"
+#include "../game2d/PlatformerGame.h"
+
+struct DirectionalLight;
+
+/// <summary>
+/// ゲーム画面（3Dオブジェクト・スプライト・コナミコマンドのパーティーモード）
+/// Hierarchyの右クリック / [+ Add] でオブジェクトやスプライトを追加・複製・削除できる
+/// BACKSPACEキー / ゲームパッドSTART(ボタン9)でタイトルへ戻る
+/// </summary>
+class GameScene : public Scene
+{
+public:
+    void Initialize() override;
+    void Update() override;
+    void Draw() override;
+    void DrawImGui() override;
+    void Finalize() override;
+
+private:
+    // 動きの部品（ビヘイビア）。オブジェクトごとに好きな数だけ付けられる。何も付けなければ動かない
+    // 種類 0:十字移動 1:狙いの向きへ回る 2:撃つ 3:プレイヤーを追う 4:重力で落ちる 5:2Dアクションのプレイヤー 6:2Dアクションの敵
+    //      7:体力 8:当たり判定（円） 9:敵の出現 10:三人称カメラ
+    struct Behaviour
+    {
+        int type = 0;
+        float a = 6.0f;          // 速さ / 撃つ間隔(秒) / 重力
+        float b = 0.0f;          // 重力：床の高さ(Y)
+        float c = 0.0f;          // 3つめの値（デッドアイ：スロー中の時間の速さ）
+        bool autoFire = false;   // 撃つ：操作しなくても向いている方向へ自動で撃つ
+        char target[32] = "bullet"; // 撃つ：出すひな形の名前
+        float vy = 0.0f;         // 実行中の値（重力の落下速度）
+        float timer = 0.0f;      // 実行中の値（撃つまでの待ち時間）
+        float hp = 0.0f;         // 実行中の値（体力の残り）
+        float hurt = 0.0f;       // 実行中の値（ダメージを受けたあとの無敵の残り秒）
+    };
+
+    // 部品の番号（RegisterParts の登録順と一致させる。新しい部品は末尾に足す）
+    enum PartType
+    {
+        kPartMove = 0,
+        kPartAimTurn,
+        kPartShoot,
+        kPartChase,
+        kPartGravity,
+        kPartPlatformerPlayer,
+        kPartPlatformerEnemy,
+        kPartHealth,
+        kPartHitCircle,
+        kPartSpawner,
+        kPartFollowCamera,
+        kPartDeadEye,
+        kPartCount
+    };
+
+    // 部品の登録表。部品を足すときは RegisterParts() に1か所書き足すだけ（名前・既定値・使えるモード・編集画面・更新処理）
+    // type は登録した順の番号。保存は id（名前）で行うので、番号がずれても古いシーンは壊れない
+    struct PartDef
+    {
+        const char* id;                 // 保存用の名前（英数字とアンダーバー）
+        const char* label;              // 編集画面に出す名前
+        unsigned modeMask;              // 使えるゲームモード（ビット0:フリー 1:2Dアクション 2:全方位シューティング）。フリーはいつでもすべて使える
+        float defA;                     // 付けたときの a の標準値
+        float defB;                     // 付けたときの b の標準値
+        std::function<void(Behaviour&)> ui;                                            // 編集画面（なければ何も出さない）
+        std::function<void(Behaviour&, Transform&, int, const Vector3&)> step;        // 毎フレームの更新（bh, 位置, objects_の番号(-1:ひな形の個体), 中心のずれ）。なければ他の処理が使うだけ
+        float defC = 0.0f;              // 付けたときの c の標準値
+        const char* defTarget = nullptr; // 付けたときの target の標準値（nullptr なら変えない）
+    };
+    std::vector<PartDef> partDefs_;
+    void ResetPartToDefaults(Behaviour& bh) const; // 部品の値を、その種類の標準にする
+    void RegisterParts();                   // 部品を登録する（初期化時に1回）
+    int PartIndexById(const std::string& id) const; // 名前から番号（見つからなければ-1。数字だけの文字列は古い保存形式の番号として扱う）
+    const char* PartId(int type) const;     // 番号から保存用の名前
+
+    // マップのチップ（ブロック1マスぶん）の設定
+    struct BlockProps
+    {
+        int chip = 0;                       // チップの種類（kChips の番号）
+        float height = 1.5f;                // 高さ（3Dマップ）
+        bool ownColor = false;              // このマスだけ色を指定するか（false なら、全体のブロックの色）
+        Vector4 color{ 1.0f, 1.0f, 1.0f, 1.0f };
+    };
+
+    // 3Dオブジェクト1体ぶんの状態（描画はGameObject/Object3dが担当）
+    struct ObjectSlot
+    {
+        std::unique_ptr<GameObject> object;
+        std::unique_ptr<VideoPlayer> video; // set when this object is a 3D video screen
+        std::string videoName;
+        int objIndex = 0;       // ImGuiのComboで選ばれている objFileList_ 内のインデックス
+        int loadedObjIndex = 0; // 実際にモデルを読み込み済みのインデックス
+        Vector4 konamiOriginalColor{ 1.0f, 1.0f, 1.0f, 1.0f }; // パーティーモード開始前の色
+        int role = 0;       // ゲーム用の役割 0:なし 1:プレイヤー 2:ブロック 3:敵 4:ゴール（2D軸アクションで使う）
+        bool shield = false; // 敵の役割のとき、盾の敵（2回踏まないと倒せない）
+        int texOverride = 0;       // テクスチャの上書き 0:モデルのまま i+1:textureFileList_[i]
+        int loadedTexOverride = 0; // 実際に反映済みの値
+        bool refit = false;        // モデルを差し替えたあと、大きさをマスに合わせ直す
+        char name[32] = "";        // このオブジェクトの名前（ひな形は「bullet」「enemy」のように呼び出しに使う）
+        int pool = 32;             // ひな形：あらかじめ用意しておく数（同時に出せる上限）
+        float prefabSpeed = 12.0f; // ひな形：出したときの飛ぶ速さ（1秒あたり）
+        float prefabLife = 2.0f;   // ひな形：消えるまでの秒数
+        std::vector<Behaviour> behaviours; // 動きの部品
+        bool dead = false;                 // 実行中：倒された
+        int chip = 0;                      // ブロックのとき：チップの種類
+        bool ownColor = false;             // ブロックのとき：このマスだけ色を指定している
+        Vector4 ownTint{ 1.0f, 1.0f, 1.0f, 1.0f }; // その色
+    };
+
+    // スプライト1枚ぶんの状態
+    struct SpriteSlot
+    {
+        std::unique_ptr<Sprite> sprite;
+        std::unique_ptr<VideoPlayer> video; // set when this sprite plays a video
+        std::string videoName;
+        int texIndex = 0;       // textureFileList_ 内のインデックス
+        int loadedTexIndex = 0;
+        Vector2 size{ 640.0f, 360.0f }; // 作成時の縦横サイズ（複製に使う）
+    };
+
+    // 板ポリ大量配置1グループぶんの状態（同じテクスチャの板を count 枚、DrawInstanced 1回で描く）
+    struct PlanesSlot
+    {
+        std::unique_ptr<InstancedPlanes> planes;
+        int texIndex = 0;       // textureFileList_ 内のインデックス
+        int loadedTexIndex = 0;
+    };
+
+    // 配置したライト1つぶん（ポイント / スポット）
+    struct LightSlot
+    {
+        int type = 0; // 0:ポイント 1:スポット
+        Vector4 color{ 1.0f, 1.0f, 1.0f, 1.0f };
+        Vector3 position{ 0.0f, 3.0f, 0.0f };
+        Vector3 direction{ 0.0f, -1.0f, 0.0f }; // スポットの向き
+        float intensity = 1.0f;
+        float range = 10.0f;
+        float decay = 1.0f;
+        float outerDeg = 60.0f;
+        float innerDeg = 30.0f;
+    };
+
+    // Hierarchyでの選択
+    enum class SelectKind { None, Object, Sprite, Planes, Emitter, Light, SceneLight };
+    struct Selection
+    {
+        SelectKind kind = SelectKind::None;
+        int index = 0;
+    };
+
+    void ScanResources();
+    void ImportDroppedFiles(); // files dropped on the window: copy to resources/ and add to the scene
+    int AddObject(int objIndex, const Vector3& translate);
+    // ---- ゲームモード：2D軸アクション（判定は x, y だけ。見た目は置いた3Dオブジェクトをそのまま動かす）----
+    void BuildPlatformerPlay();   // 再生開始：役割を付けたオブジェクトからステージを作る
+    void UpdatePlatformerPlay();  // 再生中：2Dロジックを進めて、結果をオブジェクトとカメラへ反映する
+    bool SaveScene(const char* path);   // 置いたオブジェクトをテキストで保存する
+    bool LoadScene(const char* path);   // 保存したシーンを読み込む（今のオブジェクトは消える）
+    Camera& ActiveCamera() { return (pfActive_ || mapEdit_ || followCamActive_) ? gameCamera_ : *camera_; }
+    const Camera& ActiveCamera() const { return (pfActive_ || mapEdit_ || followCamActive_) ? gameCamera_ : *camera_; }
+    // ---- マップ編集（AL4_2D風：ビューポートをクリック・ドラッグして、マスにブロックや敵を置く）----
+    void UpdateMapEdit();          // 編集カメラ・マウス → マス・配置/消去・アンドゥ
+    void DrawMapEditOverlay();     // グリッド・マスの枠をビューポートに重ねる
+    int FindBlockAt(int x, int y); // そのマスのブロック役オブジェクト（なければ -1）
+    bool SetBlockCell(int x, int y, bool solid, const BlockProps* props = nullptr); // ブロックを置く/消す（props があれば、その設定で置く／既にあれば作り替える。変化したら true）
+    BlockProps GetBlockProps(int objectIndex); // ブロックの今の設定
+    void EraseRoleObjectsNear(float x, float y, float radius, bool includeGoal); // 敵・ゴールを消す
+    int AddRoleObject(int role, const std::string& modelName, const Vector3& cellCenter, float fitSize, const Vector4& color, bool shield);
+    void UndoMapEdit();
+    Vector3 ModelCenterOffset(int objectIndex); // オブジェクトの原点から見た、モデルの中心のずれ（回転は無視）
+    bool ExportStageCsv(const char* path);
+    void ApplyFlatUv(Object3d& object);          // テクスチャの白い1点だけを使う（単色）
+    void ApplyBlockStyle(int objectIndex);       // ブロックの見た目（テクスチャ・色）を反映する
+    void ApplyBlockStyleAll();
+    void FitObjectToSize(int objectIndex, float size); // モデルの中心を動かさず、最大辺が size になるよう拡縮する
+    bool ImportStageCsv(const char* path);
+    int AddSprite(int texIndex, const Vector2& size);
+    int AddVideoObject(const std::string& utf8Path); // video on a 3D plane (-1 on failure)
+    int AddVideoSprite(const std::string& utf8Path); // returns -1 if the video cannot be opened
+    void DuplicateObject(int index);
+    void DuplicateSprite(int index);
+    int AddPlanes(int texIndex, const Vector3& position);
+    void DuplicatePlanes(int index);
+    int AddEmitter(ParticlePreset preset, const Vector3& position);
+    void DuplicateEmitter(int index);
+    int AddLight(int type, const Vector3& position);
+    void DuplicateLight(int index);
+    void UpdateLights(); // 配置したライトを定数バッファへ書き込む
+    void UpdateShadow();     // 影用のライトのビュー射影行列を更新する
+    void RenderShadowPass(); // 影の深度テクスチャを描く（本描画の前に記録する）
+    void RunPendingCommands();
+    void DeleteSelection(); // 選択中のオブジェクト/スプライト/エミッターを削除する
+    void StartPlay(); // 実行開始：今のシーンを保存してから動かす
+    void StopPlay();  // 実行停止：保存しておいた状態に戻す
+    void UpdateKonami();
+    void UpdateObjects();
+
+    // ひな形（プレハブ）から量産するしくみ。実行開始時にあらかじめ数をそろえておき、出す/消すは切り替えるだけ
+    struct Spawned
+    {
+        std::unique_ptr<GameObject> object;
+        std::string prefabName;
+        Transform base;          // 動かしている最中の位置・向き・大きさ
+        bool active = false;
+        Vector3 vel{ 0.0f, 0.0f, 0.0f };
+        float life = 0.0f;
+        float speed = 0.0f;
+        float defaultLife = 1.0f;
+        std::vector<Behaviour> behaviours; // ひな形の部品のコピー（敵なら追う・体力・当たり判定など）
+    };
+    void AttachRoleBehaviours(int index);   // 役割に合う部品を付ける（マップ編集・CSVで作ったプレイヤー/敵用）
+    void UpdateBehaviours();                // 動きの部品を1/60秒ぶん進める
+    void StepBehaviours(std::vector<Behaviour>& list, Transform& t, int selfIndex, const Vector3& centerOffset); // 1体ぶんの部品を進める（selfIndex: objects_の番号、ひな形から出した個体は-1）
+    void UpdateCombat();                    // 当たり判定とダメージ・倒れる処理
+    void ApplyFollowCamInput(const Vector2& mouse, bool mouseInside); // 三人称カメラの向きに合わせて、移動と狙いの向きを置き換える
+    void UpdateFollowCamera();              // 三人称カメラを動かす
+    int FindAimOwner() const;               // 狙いの基準にするオブジェクト（撃つ部品を持つもの、なければプレイヤー役）
+    void BuildSpawnPool();                  // 実行開始時に、ひな形ごとに pool 個を用意する
+    void UpdateSpawnPool();                 // 飛ばす・寿命を数える・テスト発射
+    bool SpawnPrefab(const char* name, const Vector3& position, const Vector2& direction); // 空いている1個を出す
+    void MakeFloor();                       // 床を敷く（名前「floor」）
+    int MakeBulletPrefab();                 // 弾のひな形を作る（名前「bullet」）
+    int MakeEnemyPrefab();                  // 敵のひな形を作る（名前「enemy」）
+    void MakeShooterSet();                  // 全方位シューティングの標準セットを作る（ないものだけ）
+    char combatDbg_[256] = ""; // 当たり判定の確認用の表示（UpdateCombat が書く）
+    bool SpawnRing(const char* name, float distance); // プレイヤーの周りの円周上（プレイヤーがいなければマップの中心の周り）に、ひな形を1つ出す
+    int FindPlayerObject() const;           // 役割がプレイヤーの最初のオブジェクト（なければ-1）
+    std::vector<Spawned> spawnPool_;
+    std::mt19937 spawnRng_{ 20261026 };
+    // ---- 地面の向き：全方位シューティングは地面がXZ平面（上がY）、それ以外はXY平面 ----
+    bool Ground3D() const { return gameMode_ == 2; }
+    Vector2 Planar(const Vector3& p) const { return Ground3D() ? Vector2{ p.x, p.z } : Vector2{ p.x, p.y }; }                 // 地面の上の座標（横, 奥）
+    Vector3 FromPlanar(const Vector3& base, float u, float v) const { return Ground3D() ? Vector3{ u, base.y, v } : Vector3{ u, v, base.z }; }
+    void SetHeading(Transform& t, float theta) const { if (Ground3D()) { t.Rotate.y = -theta; } else { t.Rotate.z = theta; } } // 向き（+横方向を0、反時計回り）
+    float Heading(const Transform& t) const { return Ground3D() ? -t.Rotate.y : t.Rotate.z; }
+    Vector3 CellWorld(float x, float y, float h) const { return Ground3D() ? Vector3{ x, h, y } : Vector3{ x, y, 0.0f }; }     // マス(x,y)の中心（h は地面からの高さ）
+    int MapW() const;                       // マップの横のマス数
+    int MapH() const;                       // マップの縦（奥行き）のマス数
+    float wallHeight_ = 1.5f;
+    std::vector<unsigned char> visFlags_;   // ブロックごとの表示判定。1:画面に映る 2:影の範囲内（ブロックが多いとき、見えないものの描画・更新を省く）               // 3Dマップの壁の高さ
+    std::vector<unsigned char> wallGrid_;   // 再生中：壁のあるマス（当たり判定用）
+    void BuildWallGrid();
+    bool WallAt(int cx, int cz) const;      // そのマスが壁か（マップの外も壁）
+    bool PushOutOfWalls(Vector2& p, float r) const; // 円が壁にめり込んでいたら押し出す（めり込んでいたら true）
+    int gameMode_ = 0;                      // ゲームモード 0:フリー 1:2Dアクション 2:全方位シューティング（モードに合う部品だけが動く）
+    bool PartAllowed(int type) const;       // 今のゲームモードで使える部品か
+    // ---- HUD（再生中、ゲーム画面に重ねる体力ゲージ・スコア・時間・ゲームオーバー表示）----
+    void BuildHud();                        // HUDのスプライトを用意する（初期化時に1回）
+    void UpdateHud();                       // 再生中：HUDの表示内容を作る
+    void HudText(const char* text, float x, float y, float scale, int align, const Vector4& color); // 文字を並べる（align 0:左 1:中央 2:右）
+    std::unique_ptr<Sprite> hudWhite_[6];   // 0:暗幕 1:体力の枠 2:体力ゲージ 3:デッドアイの色かぶせ 4:ゲージの枠 5:ゲージ
+    std::vector<std::unique_ptr<Sprite>> hudGlyphs_; // 文字用のスプライト（毎フレーム使い回す）
+    int hudGlyphUsed_ = 0;
+    std::vector<Sprite*> hudDraw_;          // このフレームに描くもの（描く順）
+    int hudFrame_ = 0;
+    // ---- 時間倍率とデッドアイ ----
+    float timeScale_ = 1.0f;                // ゲーム全体の時間の速さ（1で通常、デッドアイ中は小さくなる）
+    float Dt() const { return camFx_.IsHitStop() ? 0.0f : (1.0f / 60.0f) * timeScale_; } // 1フレームの進み（時間倍率込み。ヒットストップ中は0）
+    CameraEffects camFx_;                   // 画面の揺れ・ヒットストップ
+    bool fxAuto_ = true;                    // 敵を倒した・ダメージを受けたときに自動で演出する
+    float fxKillShake_ = 0.12f;             // 敵を倒したときの揺れ
+    int fxKillStop_ = 2;                    // 敵を倒したときのヒットストップ（フレーム）
+    float fxHurtShake_ = 0.35f;             // ダメージを受けたときの揺れ
+    int fxHurtStop_ = 4;                    // ダメージを受けたときのヒットストップ（フレーム）
+    bool RaycastWalls(const Vector2& from, const Vector2& to, Vector2* hit = nullptr) const; // 地面の上の線分が壁に当たるか（当たった位置を hit に返す）
+    struct DeadEyeState
+    {
+        int phase = 0;                      // 0:通常 1:マーク中 2:一斉射撃中
+        float markTimer = 0.0f;             // 次のマークを付けるまで（実時間）
+        float shotTimer = 0.0f;             // 次の1発までの待ち（実時間）
+        int lastKill = 0;                   // 前のフレームの倒した数（増えた分だけゲージが溜まる）
+        std::vector<int> marks;             // マークした相手。0以上:spawnPool_の番号 負:-(objects_の番号+1)
+        std::vector<std::pair<int, float>> pending; // 撃った弾が届くまで待っている相手（相手, 届くまでの秒）
+    };
+    DeadEyeState deadEye_;
+    void UpdateDeadEye();                   // デッドアイ：スロー・マーク・一斉射撃
+    bool DeadEyeTarget(int id, Vector3& center); // マークした相手がまだ生きていれば、その中心を返す
+    void DeadEyeKill(int id);               // マークした相手を倒す
+    int gameOverFrames_ = 0;                // ゲームオーバーになってからのフレーム数（すぐにリトライしてしまわないため）
+    bool gameOver_ = false;                 // プレイヤーが倒された
+    int killCount_ = 0;                     // 倒した数
+    float playTime_ = 0.0f;                 // 再生してからの秒数（敵の出現が早くなるのに使う）
+    bool followCamActive_ = false;          // 三人称カメラが動いている間 true
+    int followCamOwner_ = -1;               // 三人称カメラの部品を持つオブジェクト
+    float camYaw_ = 1.5707963f;             // 三人称カメラの向き（平面上の角度。+Yを向くのが90度）
+    float fireCooldown_ = 0.0f;
+    void UpdateViewportInteraction(); // Viewport上のクリック選択・ドラッグ移動
+    void UpdateCameraControl();       // 右クリックホールド中だけカメラを操作できるようにする
+    void DrawSelectionOutline();      // 選択中の項目の枠と、拡大縮小ハンドルをViewportに重ねる
+    // 選択中の項目のハンドル位置（ゲーム画面ピクセル座標）。0～3:四隅(左上・右上・右下・左下) 4～7:辺の中点(上・右・下・左)
+    bool GetSelectionHandles(Vector2 outHandles[8]) const;
+
+    std::unique_ptr<Camera> camera_;
+    DebugCamera* debugCamera_ = nullptr; // camera_の中身（操作の有効/無効の切り替え用。所有はcamera_）
+    bool showMarkers_ = true;             // show position markers for all objects/sprites
+    bool middleActive_ = false;           // wheel-button drag rotates the camera
+    bool cameraActive_ = false;           // 右クリックホールドでカメラ操作中
+    std::vector<ObjectSlot> objects_;
+    std::vector<SpriteSlot> sprites_;
+    std::vector<PlanesSlot> planes_;        // 板ポリ大量配置
+    std::vector<ParticleEmitter> emitters_; // シーンに置いたパーティクルエミッター
+    std::vector<LightSlot> lights_;         // シーンに置いたポイント/スポットライト
+
+    // 実行(Play)モード。false の間は編集モードで、シーンは止まっている
+    bool playing_ = false;
+    struct Snapshot
+    {
+        struct Item
+        {
+            Transform transform;
+            Transform uvTransform;
+            Vector4 color;
+        };
+        std::vector<Item> objects;
+        std::vector<Item> sprites;
+        std::vector<InstancedPlanes::Settings> planes;
+        std::vector<ParticleEmitter> emitters;
+        std::vector<LightSlot> lights;
+    };
+    Snapshot snapshot_; // Play開始時のシーン（Stopで戻す）
+
+    std::vector<std::string> objFileList_;
+    std::vector<const char*> objFileListCStr_;
+    std::vector<std::string> textureFileList_;  // "resources/xxx.png"
+    std::vector<const char*> textureFileListCStr_;
+
+    // 追加・削除・複製は描画中のリソースを壊さないよう、次フレームの頭でまとめて実行する
+    std::vector<std::function<void()>> pendingCommands_;
+
+    KonamiCommand konamiCommand_;
+    bool konamiPartyMode_ = false; // コナミコマンドで切り替わるアニメーション演出モード
+    float konamiTime_ = 0.0f;      // パーティーモード中の演出用タイマー
+
+    Selection selection_;
+
+    // Viewportでのドラッグ状態
+    enum class DragMode { None, Move, ScaleSprite, ScaleObject, PanCamera };
+    DragMode dragMode_ = DragMode::None;
+
+    // 移動（Move）
+    Vector2 dragSpriteOffset_{ 0.0f, 0.0f };       // スプライト：つかんだ位置とTranslateの差
+    Vector3 dragPlanePoint_{ 0.0f, 0.0f, 0.0f };   // 3D：ドラッグ平面が通る点
+    Vector3 dragPlaneNormal_{ 0.0f, 0.0f, 1.0f };  // 3D：ドラッグ平面の法線
+    Vector3 dragObjectOffset_{ 0.0f, 0.0f, 0.0f }; // 3D：つかんだ位置とTranslateの差
+
+    // 拡大縮小（ScaleSprite / ScaleObject）
+    int scaleHandle_ = 0;                          // つかんだハンドル（0～3:四隅 4～7:辺の中点 上・右・下・左）
+    int scaleAxis_ = -1;                           // 3D：拡大縮小する軸（0:X 1:Y 2:Z、-1なら全軸）
+    Vector3 scaleStart_{ 1.0f, 1.0f, 1.0f };       // ドラッグ開始時のScale
+    Vector2 scaleAnchor_{ 0.0f, 0.0f };            // スプライト：動かさない反対側の隅（画面座標）
+    Vector2 scaleCenter_{ 0.0f, 0.0f };            // 3D：オブジェクト中心の画面座標
+    float scaleStartDistance_ = 1.0f;              // 3D：開始時の中心からマウスまでの距離
+
+    Vector3 shadowCenter_{ 0.0f, 0.0f, 0.0f }; // 影を落とす範囲の中心
+    float shadowRange_ = 20.0f;                // 影を落とす範囲の半径
+
+    DirectionalLight* directionalLight_ = nullptr; // ImGuiで編集する用
+
+    pf::Game pfGame_;
+    Camera gameCamera_;            // 2D軸アクション再生中だけ使うカメラ
+    bool pfActive_ = false;        // 2D軸アクションが動いている間 true
+    int pfPlayerObject_ = -1;
+    int pfGoalObject_ = -1;
+    std::vector<int> pfEnemyObjects_; // 敵 id（1始まり）-1 → objects_ のインデックス
+    pf::Vec2 pfOrigin_{ 0.0f, 0.0f }; // シーン座標 = ゲーム座標 + pfOrigin_
+    int pfSeenReset_ = 0;
+    Vector3 pfSavedShadowCenter_{ 0.0f, 0.0f, 0.0f };
+    float pfPpu_ = 48.0f;          // 画面の高さに映るマス数を決める倍率（大きいほど寄る）
+    float pfYawDeg_ = 0.0f;        // カメラを横にずらす角度
+    float pfPitchDeg_ = 0.0f;      // カメラを上から見下ろす角度
+    std::string pfMessage_;        // 再生開始時のエラー表示
+    std::string sceneMessage_;     // 保存・読み込みの結果表示
+
+    // マップ編集
+    struct BlockEdit
+    {
+        int x = 0;
+        int y = 0;
+        bool before = false; // 変更前にブロックがあったか
+        BlockProps beforeProps; // 変更前の設定
+    };
+    BlockProps mapProps_;                   // これから置くチップの設定
+    int mapChip_ = 0;                       // 選んでいるチップの種類
+    bool mapRect_ = false;                  // 四角でまとめて塗る・消す
+    bool rectDrag_ = false;                 // 四角をドラッグ中
+    bool rectErase_ = false;                // その四角は消す操作か
+    int rectX0_ = 0, rectY0_ = 0, rectX1_ = 0, rectY1_ = 0;
+    bool selValid_ = false;                 // 範囲選択がある
+    int selX0_ = 0, selY0_ = 0, selX1_ = 0, selY1_ = 0;
+    struct ClipCell
+    {
+        int dx = 0;
+        int dy = 0;
+        BlockProps p;
+    };
+    std::vector<ClipCell> clip_;            // コピーしたチップ
+    int clipW_ = 0;
+    int clipH_ = 0;
+    void CopySelection(bool cut);           // 選択範囲をコピー（cut なら消す）
+    void TransformClip(int mode);           // コピーしたものを変形（0:右に90度回す 1:左右反転 2:上下反転）
+    bool mapEdit_ = false;
+    bool mapEditPrev_ = false;
+    int mapTool_ = 0;   // 0:ブロック 1:消しゴム 2:敵 3:盾の敵 4:ゴール 5:プレイヤー開始位置
+    float enemySize_ = 1.2f;                // マップに置く敵・敵のひな形の大きさ（最大辺。当たり判定の半径はこの半分）
+    int mapBrush_ = 1;  // ブラシの大きさ（n x n マス）
+    float editCamX_ = 10.0f;
+    float editCamY_ = 5.0f;
+    float editDist_ = 16.0f;
+    float editYaw_ = -1.5707963f;   // 3Dマップの編集カメラ：向き（-90度で画面の上が奥）
+    float editPitch_ = 1.0471976f;  // 3Dマップの編集カメラ：見下ろす角度（90度に近いほど真上）
+    bool mapHoverValid_ = false;
+    int mapHoverX_ = 0;
+    int mapHoverY_ = 0;
+    bool mapPainting_ = false;
+    bool mapErasing_ = false;
+    std::vector<BlockEdit> mapStroke_;                 // 押してから離すまでの変更
+    std::vector<std::vector<BlockEdit>> mapUndo_;      // アンドゥ用（上限200ストローク）
+    char csvPath_[160] = "resources/stage.csv";
+    char scenePath_[160] = "resources/scene.txt"; // シーンファイルの場所
+    GameInput gameInput_; // 入力の窓口（キーボード・マウス・ゲームパッドをまとめる）
+    // ブロックの見た目（全ブロック共通）
+    int blockTexIndex_ = 0;                                  // 0:単色 i+1:textureFileList_[i]
+    Vector4 blockTint_{ 0.42f, 0.72f, 0.32f, 1.0f };         // 色（テクスチャがあるときは乗算）
+    bool blockStyleDirty_ = false;                           // true なら次のUpdateで全ブロックへ反映する
+    Vector2 cubeWhiteUv_{ 0.5f, 0.5f };                      // パレットの白のマスのUV
+    Vector3 pfPlayerOffset_{ 0.0f, 0.0f, 0.0f };
+    std::vector<Vector3> pfEnemyOffsets_;
+};

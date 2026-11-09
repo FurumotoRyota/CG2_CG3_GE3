@@ -15,7 +15,8 @@ struct Material
     int32_t specularMode;  // 0:なし 1:Phong 2:Blinn-Phong 3:PBR(GGX)
     float roughness;       // PBR：表面の粗さ（0:鏡面 ～ 1:ざらざら）
     float metallic;        // PBR：金属度（0:非金属 ～ 1:金属）
-    float padding[2];
+    float receiveShadow;   // 影を受けるか（0.5以上で受ける）
+    float padding;
     Matrix4x4 uvTransform; // UV変換行列
 };
 
@@ -24,6 +25,7 @@ struct TransformationMatrix
     Matrix4x4 WVP;
     Matrix4x4 World;
     Matrix4x4 WorldInverseTranspose; // 法線用（非均一スケールでも法線が正しく向くようにする）
+    Matrix4x4 LightWVP;              // 光から見た位置（影用）= World * ライトのビュー射影
 };
 
 // 配置できるライトの最大数
@@ -59,6 +61,8 @@ struct DirectionalLight
 
     // 配置したライト（ポイント/スポット）の数
     int32_t lightCount;
-    float padding1[3];
+    float shadowBias;     // 影のバイアス（影のぎざぎざ/縞を防ぐ）
+    float shadowStrength; // 影の濃さ（0～1）
+    int32_t shadowEnabled; // 0:影なし 1:ディレクショナルライトの影
     LightData lights[kMaxLights];
 };

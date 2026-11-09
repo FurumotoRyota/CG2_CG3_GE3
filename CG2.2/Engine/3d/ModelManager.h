@@ -20,6 +20,9 @@ public:
     // "resources"フォルダのobjファイル名、または ModelLoader::kSphereTag を指定する
     Model* Load(const std::string& modelName);
 
+    // 手続き生成したModelDataを名前付きで登録する (既にある名前は既存モデルを返す)
+    Model* Register(const std::string& name, const ModelData& data);
+
 private:
     DirectXCommon* dxCommon_ = nullptr;
     TextureManager* textureManager_ = nullptr;

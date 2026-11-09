@@ -1,7 +1,12 @@
 ﻿#include "Game.h"
+#include "../scene/StartupScene.h"
 #include "../scene/TitleScene.h"
 #include "../scene/GameScene.h"
 #include "../scene/ChangelogScene.h"
+#include "../scene/GeometryShaderScene.h"
+#include "../scene/PoolTestScene.h"
+#include "../scene/WesternShooterScene.h"
+#include "../scene/MapEditorScene.h"
 #include "editor/EditorLayout.h"
 
 #include <format>
@@ -16,10 +21,10 @@ void Game::Initialize()
     Framework::Initialize();
 
     bgmHandle_ = audio_.LoadWave("resources/BGM.wav");
-    audio_.Play(bgmHandle_, true); // 起動時からBGMをループ再生
+    // 読み込むだけで、再生はしない（Mキー / ゲームパッドBボタン / Systemパネルのボタンで鳴らす）
 
     // 最初のシーン
-    sceneManager_.ChangeScene<TitleScene>();
+    sceneManager_.ChangeScene<StartupScene>();
 }
 
 void Game::Update()
@@ -28,12 +33,21 @@ void Game::Update()
     // ※SPACEはカメラの上移動に使うのでMキーにしてある
     // ※Bボタンの並びはコントローラーにより異なる。反応しない場合はImGuiの"GamePad"で番号を確認して差し替える
     if (input_.TriggerKey(DIK_M) || input_.TriggerGamepadButton(1)) {
-        if (audio_.IsPlaying(bgmHandle_)) {
-            audio_.Pause(bgmHandle_);
-        }
-        else {
-            audio_.Resume(bgmHandle_);
-        }
+        ToggleBgm();
+    }
+}
+
+void Game::ToggleBgm()
+{
+    if (audio_.IsPlaying(bgmHandle_)) {
+        audio_.Pause(bgmHandle_);
+    }
+    else if (!bgmStarted_) {
+        audio_.Play(bgmHandle_, true); // 初めてのときは頭からループ再生
+        bgmStarted_ = true;
+    }
+    else {
+        audio_.Resume(bgmHandle_);
     }
 }
 
@@ -49,11 +63,26 @@ void Game::DrawImGui()
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("シーン")) {
+            if (ImGui::MenuItem("スタートアップ演出")) {
+                sceneManager_.ChangeScene<StartupScene>();
+            }
             if (ImGui::MenuItem("タイトル")) {
                 sceneManager_.ChangeScene<TitleScene>();
             }
             if (ImGui::MenuItem("ゲーム")) {
                 sceneManager_.ChangeScene<GameScene>();
+            }
+            if (ImGui::MenuItem("ジオメトリシェーダー")) {
+                sceneManager_.ChangeScene<GeometryShaderScene>();
+            }
+            if (ImGui::MenuItem("プール確認")) {
+                sceneManager_.ChangeScene<PoolTestScene>();
+            }
+            if (ImGui::MenuItem("西部シューティング")) {
+                sceneManager_.ChangeScene<WesternShooterScene>();
+            }
+            if (ImGui::MenuItem("マップエディタ")) {
+                sceneManager_.ChangeScene<MapEditorScene>();
             }
             if (ImGui::MenuItem("更新履歴")) {
                 sceneManager_.ChangeScene<ChangelogScene>();
@@ -73,12 +102,7 @@ void Game::DrawImGui()
             ImGui::Text("BGM: %s", bgmPlaying ? "再生中" : "停止中");
             ImGui::Text("切り替え: Mキー / ゲームパッドのBボタン");
             if (ImGui::Button(bgmPlaying ? "BGMを停止" : "BGMを再生")) {
-                if (bgmPlaying) {
-                    audio_.Pause(bgmHandle_);
-                }
-                else {
-                    audio_.Resume(bgmHandle_);
-                }
+                ToggleBgm();
             }
             ImGui::EndTabItem();
         }

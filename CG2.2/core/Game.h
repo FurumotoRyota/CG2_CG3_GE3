@@ -12,5 +12,8 @@ protected:
     void DrawImGui() override;
 
 private:
+    void ToggleBgm(); // BGMの再生/一時停止を切り替える（最初の1回目は頭から再生する）
+
     Audio::SoundHandle bgmHandle_ = Audio::kInvalidHandle;
+    bool bgmStarted_ = false; // 一度でも再生を始めたか（起動しただけでは鳴らさない）
 };

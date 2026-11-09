@@ -72,10 +72,22 @@
     <ClCompile Include="2d\Sprite.cpp">
       <Filter>2d</Filter>
     </ClCompile>
+    <ClCompile Include="2d\ColorBatch.cpp">
+      <Filter>2d</Filter>
+    </ClCompile>
     <ClCompile Include="2d\SpriteCommon.cpp">
       <Filter>2d</Filter>
     </ClCompile>
     <ClCompile Include="3d\InstancedPlanes.cpp">
+      <Filter>3d</Filter>
+    </ClCompile>
+    <ClCompile Include="3d\EnvironmentMap.cpp">
+      <Filter>3d</Filter>
+    </ClCompile>
+    <ClCompile Include="3d\ShadowMap.cpp">
+      <Filter>3d</Filter>
+    </ClCompile>
+    <ClCompile Include="3d\GeometryPipeline.cpp">
       <Filter>3d</Filter>
     </ClCompile>
     <ClCompile Include="3d\Model.cpp">
@@ -144,6 +156,9 @@
     <ClCompile Include="input\Input.cpp">
       <Filter>input</Filter>
     </ClCompile>
+    <ClCompile Include="input\GameInput.cpp">
+      <Filter>input</Filter>
+    </ClCompile>
     <ClCompile Include="input\KonamiCommand.cpp">
       <Filter>input</Filter>
     </ClCompile>
@@ -161,10 +176,22 @@
     <ClInclude Include="2d\Sprite.h">
       <Filter>2d</Filter>
     </ClInclude>
+    <ClInclude Include="2d\ColorBatch.h">
+      <Filter>2d</Filter>
+    </ClInclude>
     <ClInclude Include="2d\SpriteCommon.h">
       <Filter>2d</Filter>
     </ClInclude>
     <ClInclude Include="3d\InstancedPlanes.h">
+      <Filter>3d</Filter>
+    </ClInclude>
+    <ClInclude Include="3d\EnvironmentMap.h">
+      <Filter>3d</Filter>
+    </ClInclude>
+    <ClInclude Include="3d\ShadowMap.h">
+      <Filter>3d</Filter>
+    </ClInclude>
+    <ClInclude Include="3d\GeometryPipeline.h">
       <Filter>3d</Filter>
     </ClInclude>
     <ClInclude Include="3d\Model.h">
@@ -245,6 +272,9 @@
     <ClInclude Include="input\Input.h">
       <Filter>input</Filter>
     </ClInclude>
+    <ClInclude Include="input\GameInput.h">
+      <Filter>input</Filter>
+    </ClInclude>
     <ClInclude Include="input\KonamiCommand.h">
       <Filter>input</Filter>
     </ClInclude>
@@ -283,6 +313,48 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <FxCompile Include="Shaders\GeometryModel.GS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometryModel.PS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometryModel.VS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometrySample.PS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometrySample0_Point.GS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometrySample1_Append.GS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometrySample2_Line.GS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometrySample3_LineStrip.GS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometrySample4_RestartStrip.GS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometrySample5_Duplicate.GS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometrySample6_UvTile.GS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometryPoint.GS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometryPoint.PS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\GeometryPoint.VS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
     <FxCompile Include="Shaders\InstancedPlane.PS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
@@ -295,6 +367,15 @@
     <FxCompile Include="Shaders\Object3d.VS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
+    <FxCompile Include="Shaders\Shadow.VS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\Skybox.PS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\Skybox.VS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
     <FxCompile Include="Shaders\Particle.PS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
@@ -303,6 +384,12 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="Shaders\Geometry.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\GeometrySample.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
     <None Include="Shaders\Object3d.hlsli">
       <Filter>Shaders</Filter>
     </None>

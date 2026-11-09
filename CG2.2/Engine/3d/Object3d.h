@@ -29,6 +29,8 @@ public:
     void Update(const Transform& renderTransform, const Matrix4x4& viewMatrix, const Matrix4x4& projectionMatrix);
 
     void Draw();
+    // 影の描画パス用（影を落とす設定のときだけ、形を光から見た位置で描く）
+    void DrawShadow(ID3D12GraphicsCommandList* commandList);
 
     Transform& GetTransform() { return transform_; }
     Transform& GetUvTransform() { return uvTransform_; }
@@ -43,6 +45,10 @@ public:
     void SetExternalTexture(D3D12_GPU_DESCRIPTOR_HANDLE srvHandle) { externalSrv_ = srvHandle; useExternalTexture_ = true; }
     void ClearExternalTexture() { useExternalTexture_ = false; }
 
+    // 影を落とすか（既定はオン）。影を受けるかは GetMaterial()->receiveShadow
+    bool GetCastShadow() const { return castShadow_; }
+    void SetCastShadow(bool cast) { castShadow_ = cast; }
+
     // 両面描画（裏面も描く）。薄い板・フェンスなど向け。既定はオフ
     bool IsDoubleSided() const { return doubleSided_; }
     void SetDoubleSided(bool doubleSided) { doubleSided_ = doubleSided; }
@@ -53,6 +59,7 @@ private:
     std::string modelName_;
     BlendMode blendMode_ = BlendMode::None; // 既定は不透明（混ぜない）
     bool doubleSided_ = false;
+    bool castShadow_ = true;
     bool useExternalTexture_ = false;
     D3D12_GPU_DESCRIPTOR_HANDLE externalSrv_{};
 

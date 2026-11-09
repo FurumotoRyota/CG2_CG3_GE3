@@ -1,6 +1,7 @@
 ﻿#include "Model.h"
 #include "../base/BasicPipeline.h"
 #include "../base/DirectXCommon.h"
+#include "../core/FrameStats.h"
 
 #include <algorithm>
 #include <cassert>
@@ -68,6 +69,17 @@ void Model::Initialize(DirectXCommon* dxCommon, TextureManager* textureManager, 
     }
 }
 
+void Model::DrawGeometry(ID3D12GraphicsCommandList* commandList) const
+{
+    for (const SubMesh& subMesh : subMeshes_) {
+        if (subMesh.vertexCount == 0) {
+            continue;
+        }
+        commandList->IASetVertexBuffers(0, 1, &subMesh.vertexBufferView);
+        commandList->DrawInstanced(UINT(subMesh.vertexCount), 1, 0, 0); FrameStats::Count(FrameStats::kShadow, subMesh.vertexCount);
+    }
+}
+
 void Model::Draw(ID3D12GraphicsCommandList* commandList, const D3D12_GPU_DESCRIPTOR_HANDLE* overrideSrv) const
 {
     for (const SubMesh& subMesh : subMeshes_) {
@@ -77,6 +89,6 @@ void Model::Draw(ID3D12GraphicsCommandList* commandList, const D3D12_GPU_DESCRIP
         commandList->SetGraphicsRootDescriptorTable(
             BasicPipeline::kRootTexture, overrideSrv ? *overrideSrv : textureManager_->GetSrvHandleGPU(subMesh.textureHandle));
         commandList->IASetVertexBuffers(0, 1, &subMesh.vertexBufferView);
-        commandList->DrawInstanced(UINT(subMesh.vertexCount), 1, 0, 0);
+        commandList->DrawInstanced(UINT(subMesh.vertexCount), 1, 0, 0); FrameStats::Count(FrameStats::kModel, subMesh.vertexCount);
     }
 }

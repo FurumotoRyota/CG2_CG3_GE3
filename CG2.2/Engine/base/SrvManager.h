@@ -27,6 +27,7 @@ public:
     D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(uint32_t index) const;
 
     void CreateSrvForTexture2D(uint32_t index, ID3D12Resource* resource, DXGI_FORMAT format, UINT mipLevels);
+    void CreateSrvForTextureCube(uint32_t index, ID3D12Resource* resource, DXGI_FORMAT format, UINT mipLevels);
     void CreateSrvForStructuredBuffer(uint32_t index, ID3D12Resource* resource, UINT numElements, UINT structureByteStride);
 
 private:

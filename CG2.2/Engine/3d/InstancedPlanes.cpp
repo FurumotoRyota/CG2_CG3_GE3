@@ -1,5 +1,6 @@
 ﻿#include "InstancedPlanes.h"
 #include "../base/DirectXCommon.h"
+#include "../core/FrameStats.h"
 #include "../base/Logger.h"
 #include "../base/SrvManager.h"
 #include "../base/TextureManager.h"
@@ -247,5 +248,5 @@ void InstancedPlanes::Draw()
     ID3D12GraphicsCommandList* commandList = common_->GetDxCommon()->GetCommandList();
     commandList->SetGraphicsRootDescriptorTable(0, instanceSrvHandleGPU_);
     commandList->SetGraphicsRootDescriptorTable(1, common_->GetTextureManager()->GetSrvHandleGPU(textureHandle_));
-    commandList->DrawInstanced(6, static_cast<UINT>(drawCount), 0, 0);
+    commandList->DrawInstanced(6, static_cast<UINT>(drawCount), 0, 0); FrameStats::Count(FrameStats::kPlanes, 6, static_cast<uint32_t>(drawCount));
 }
