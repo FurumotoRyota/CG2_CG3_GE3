@@ -185,6 +185,9 @@ void WesternShooterScene::Reset()
     enemyBullets_.clear();
     enemies_.clear();
     doors_.Reset();
+    burstGate_ = 0.0f;
+    rushWait_ = 0.0f;
+    callTimer_ = 0.0f;
     dust_.Clear();
     weeds_.Clear();
 
@@ -506,6 +509,9 @@ void WesternShooterScene::UpdateVisuals()
     // 見た目の行列を更新（描く前に必ず）。使用中のものだけ
     const Matrix4x4& view = camera_.GetViewMatrix();
     const Matrix4x4& proj = camera_.GetProjectionMatrix();
+    // カメラに映る範囲だけ更新・描画する（マップ全体の立方体は2000個近いので、毎フレーム全部だと重い）。
+    // 範囲はカメラ（高さ17・手前10・縦の画角0.8）から求めた値に余裕を足したもの
+    mapView_.SetVisibleRect(cameraFocus_.x - 28.0f, cameraFocus_.y - 12.0f, cameraFocus_.x + 28.0f, cameraFocus_.y + 22.0f);
     mapView_.Update(view, proj);
     doors_.Update(view, proj);
     dust_.Update(view, proj);
@@ -697,6 +703,7 @@ void WesternShooterScene::DrawImGui()
     ImGui::Separator();
     ImGui::TextWrapped("%s", mapMessage_.c_str());
     ImGui::Text("マップ: %d x %d  出現点 %zu  区切り %zu", map_.width, map_.height, map_.spawns.size(), map_.gates.size());
+    ImGui::Text("FPS %.0f  マップの描画数 %zu", ImGui::GetIO().Framerate, mapView_.VisibleCount());
     if (currentArea_ == kNoArea) {
         ImGui::Text("区切り: なし（%s）", state_ == State::Cleared ? "全部倒した" : "出現点なし");
     }

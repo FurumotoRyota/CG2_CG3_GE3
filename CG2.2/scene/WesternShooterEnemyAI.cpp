@@ -1,5 +1,11 @@
 ﻿// 西部シューティングの敵のAI（WesternShooterScene の一部。長くなるので別ファイルにしてある）
 //
+//   連携（AssignSquad。敵全体で毎フレーム1回）:
+//     ・仲間を呼ぶ : 自機が見える敵が、近くの見えていない敵へ居場所を教える
+//     ・役割分担   : ガンマンは「抑え」（陰から撃つ）と「回り込み」（抑えの向きから左右へ回って撃つ）に分かれる。抑えが倒れたら回り込みの1体が交代
+//     ・交互に撃つ : 撃ち始めは kBurstStagger あけて順番に（全員が同時に顔を出さない）
+//     ・まとめて突っ込む : ごろつきは取り巻いて待ち、数がそろい、ガンマンが撃っているときにまとめて突っ込む
+//
 //   考え方（上から順に、敵1体ごとに毎フレーム）:
 //     1. 見える？   : 自機との間に壁・樽が無く、kSightRange 以内なら見える（GridNav::HasLineOfSight）
 //     2. 見失った？ : Search（最後に見た場所へ行って探す）→ 時間切れで hunting（自機の居場所をたどる）
@@ -59,6 +65,8 @@ void WesternShooterScene::UpdateEnemies(float dt)
         }
     }
 
+    AssignSquad(shared, dt);
+
     for (Enemy& e : enemies_) {
         if (e.obj) {
             UpdateEnemy(e, dt, shared);
@@ -77,12 +85,150 @@ void WesternShooterScene::UpdateEnemies(float dt)
     }
 }
 
+// ---------------------------------------------------------------- 連携
+
+void WesternShooterScene::AssignSquad(AiShared& shared, float dt)
+{
+    burstGate_ = (std::max)(0.0f, burstGate_ - dt);
+    callTimer_ -= dt;
+
+    // 1. 仲間を呼ぶ：自機が見える敵が、近くの見えていない敵へ居場所を教える
+    if (callTimer_ <= 0.0f) {
+        callTimer_ = kCallInterval;
+        for (const Enemy& s : enemies_) {
+            if (!s.obj || !s.sees) {
+                continue;
+            }
+            for (Enemy& o : enemies_) {
+                if (!o.obj || &o == &s || o.sees) {
+                    continue;
+                }
+                if (Length2D({ o.pos.x - s.pos.x, o.pos.y - s.pos.y }) > kCallRadius) {
+                    continue;
+                }
+                o.lastSeen = playerPos_;
+                if (o.state == AiState::Search) {
+                    o.stateTimer = (std::max)(o.stateTimer, kSearchTime * 0.6f); // 教えてもらった場所を、あらためて探す
+                }
+            }
+        }
+    }
+
+    // 2. ガンマンの役割：抑え kMaxSuppressors 体、残りは回り込み（左右に交互に）
+    int suppressors = 0;
+    int flankers = 0;
+    float sideSum = 0.0f;
+    for (const Enemy& e : enemies_) {
+        if (!e.obj || e.type != EnemyType::Gunman) {
+            continue;
+        }
+        if (e.role == Role::Suppress) {
+            ++suppressors;
+        }
+        else if (e.role == Role::Flank) {
+            ++flankers;
+            sideSum += e.flankSide;
+        }
+    }
+    for (Enemy& e : enemies_) {
+        if (!e.obj || e.type != EnemyType::Gunman || e.role != Role::None) {
+            continue;
+        }
+        if (suppressors < kMaxSuppressors) {
+            e.role = Role::Suppress;
+            ++suppressors;
+        }
+        else {
+            e.role = Role::Flank;
+            e.flankSide = sideSum <= 0.0f ? 1.0f : -1.0f;
+            e.flankArrived = false;
+            e.flankValid = false;
+            sideSum += e.flankSide;
+            ++flankers;
+        }
+    }
+    // 抑えが倒れて足りないとき：自機に一番近い回り込み役が交代する
+    if (suppressors < kMaxSuppressors && flankers > 0) {
+        Enemy* best = nullptr;
+        float bestDist = kCoverEngageDistance + 2.0f;
+        for (Enemy& e : enemies_) {
+            if (!e.obj || e.type != EnemyType::Gunman || e.role != Role::Flank) {
+                continue;
+            }
+            const float d = Length2D({ playerPos_.x - e.pos.x, playerPos_.y - e.pos.y });
+            if (d < bestDist) {
+                bestDist = d;
+                best = &e;
+            }
+        }
+        if (best) {
+            best->role = Role::Suppress;
+            best->flankValid = false;
+        }
+    }
+
+    // 抑え役のいる向き（回り込み役が「そこから左右へ」回るための基準）と、顔を出している数
+    Vector2 sum{ 0.0f, 0.0f };
+    int placed = 0;
+    for (const Enemy& e : enemies_) {
+        if (!e.obj || e.type != EnemyType::Gunman || e.role != Role::Suppress) {
+            continue;
+        }
+        if (e.state == AiState::Shoot || e.state == AiState::Peek) {
+            ++shared.suppressorsFiring;
+        }
+        if (e.state == AiState::Hide || e.state == AiState::Peek || e.state == AiState::Shoot) {
+            sum.x += e.pos.x;
+            sum.y += e.pos.y;
+            ++placed;
+        }
+    }
+    if (placed > 0) {
+        const Vector2 centroid = { sum.x / placed, sum.y / placed };
+        const Vector2 dir = { centroid.x - playerPos_.x, centroid.y - playerPos_.y };
+        if (Length2D(dir) > 2.0f) {
+            shared.front = Normalized(dir, { 0.0f, -1.0f });
+            shared.hasFront = true;
+        }
+    }
+
+    // 3. ごろつき：取り巻いた数がそろい、ガンマンが撃っているとき（または待ちくたびれたとき）にまとめて突っ込む
+    int holders = 0;
+    int brutes = 0;
+    bool gunmen = false;
+    for (const Enemy& e : enemies_) {
+        if (!e.obj) {
+            continue;
+        }
+        if (e.type == EnemyType::Brute) {
+            ++brutes;
+            if (e.state == AiState::Hold) {
+                ++holders;
+            }
+        }
+        else {
+            gunmen = true;
+        }
+    }
+    const int need = (std::max)(1, (std::min)(kRushGroup, brutes - shared.rushers));
+    const bool grouped = holders >= need;
+    const bool covered = !gunmen || shared.suppressorsFiring > 0 || rushWait_ > kRushMaxWait;
+    shared.rushSignal = grouped && covered;
+    if (holders > 0 && !shared.rushSignal) {
+        rushWait_ += dt;
+    }
+    else {
+        rushWait_ = 0.0f;
+    }
+}
+
 void WesternShooterScene::UpdateEnemy(Enemy& e, float dt, AiShared& shared)
 {
     const float radius = RadiusOf(e.type);
     const float dist = Length2D({ playerPos_.x - e.pos.x, playerPos_.y - e.pos.y });
 
     e.coverRetry = (std::max)(0.0f, e.coverRetry - dt);
+    e.coverSwitchTimer = (std::max)(0.0f, e.coverSwitchTimer - dt);
 
     // 1. 見える？
     e.sees = dist <= kSightRange && GridNav::HasLineOfSight(map_, e.pos, playerPos_);
@@ -130,9 +276,9 @@ void WesternShooterScene::UpdateBrute(Enemy& e, float dt, AiShared& shared)
 
     switch (e.state) {
     case AiState::Advance:
-        // 近づいたら突っ込む。ただし同時に突っ込めるのは kMaxRushers 体まで（残りは取り巻く）
+        // 近づいたら、まず自機を取り巻く。突っ込むのは仲間がそろった合図（AssignSquad）が出てから
         if (e.sees && dist < kRushDistance) {
-            EnterState(e, shared.rushers < kMaxRushers ? AiState::Rush : AiState::Hold, shared);
+            EnterState(e, AiState::Hold, shared);
         }
         else {
             MoveToward(e, playerPos_, kBruteRadius, kBruteSpeed, dt);
@@ -140,8 +286,8 @@ void WesternShooterScene::UpdateBrute(Enemy& e, float dt, AiShared& shared)
         break;
 
     case AiState::Hold:
-        // 突っ込める枠が空いたら突っ込む。それまでは自機のまわりを回って待つ
-        if (shared.rushers < kMaxRushers) {
+        // 合図が出て、突っ込める枠（kMaxRushers 体まで）が空いていたら突っ込む。それまでは自機のまわりを回って待つ
+        if (shared.rushSignal && shared.rushers < kMaxRushers) {
             EnterState(e, AiState::Rush, shared);
         }
         else if (dist > kRushDistance + 2.0f) {
@@ -185,11 +331,27 @@ void WesternShooterScene::UpdateGunman(Enemy& e, float dt, AiShared& shared)
         if (e.sees) {
             if (!e.flankValid) {
                 const Vector2 away = Normalized({ e.pos.x - playerPos_.x, e.pos.y - playerPos_.y }, { 0.0f, -1.0f });
-                const Vector2 dir = Rotate(away, e.flankAngle);
                 const float r = kGunmanKeepDistance * 0.9f;
-                Vector2 cand = { playerPos_.x + dir.x * r, playerPos_.y + dir.y * r };
-                if (!GridNav::CanWalk(map_, cand, cand, kGunmanRadius) || !GridNav::HasLineOfSight(map_, cand, playerPos_)) {
-                    cand = { playerPos_.x + away.x * r, playerPos_.y + away.y * r }; // 回り込めない：正面から
+                Vector2 cand = { playerPos_.x + away.x * r, playerPos_.y + away.y * r }; // 回り込めないときは正面から
+                if (e.role == Role::Flank) {
+                    // 回り込み役：抑え役のいる向きから、自分の側（左か右）へ大きく回った位置。深く回れなければ浅く
+                    const Vector2 base = shared.hasFront ? shared.front : away;
+                    const float scales[3] = { 1.0f, 0.75f, 0.5f };
+                    for (const float sc : scales) {
+                        const Vector2 dir = Rotate(base, e.flankSide * kFlankAngle * sc);
+                        const Vector2 p = { playerPos_.x + dir.x * r, playerPos_.y + dir.y * r };
+                        if (GridNav::CanWalk(map_, p, p, kGunmanRadius) && GridNav::HasLineOfSight(map_, p, playerPos_)) {
+                            cand = p;
+                            break;
+                        }
+                    }
+                }
+                else {
+                    const Vector2 dir = Rotate(away, e.flankAngle);
+                    const Vector2 p = { playerPos_.x + dir.x * r, playerPos_.y + dir.y * r };
+                    if (GridNav::CanWalk(map_, p, p, kGunmanRadius) && GridNav::HasLineOfSight(map_, p, playerPos_)) {
+                        cand = p;
+                    }
                 }
                 e.flankPos = cand;
                 e.flankValid = true;
@@ -198,7 +360,8 @@ void WesternShooterScene::UpdateGunman(Enemy& e, float dt, AiShared& shared)
         }
 
         // 自機が近づいたら、まず陰へ向かう（陰から顔を出して撃つ）。陰が見つからなければ下の「立ち止まって撃つ」へ
-        if (e.sees && dist <= kCoverEngageDistance && e.coverRetry <= 0.0f) {
+        // 回り込み役は、狙う位置に着くまで陰に入らない（着いて一度撃ってから陰を使う）
+        if (e.sees && dist <= kCoverEngageDistance && e.coverRetry <= 0.0f && (e.role != Role::Flank || e.flankArrived)) {
             if (ChooseCover(e, shared)) {
                 const Vector2 cover = e.coverPos;
                 EnterState(e, AiState::Hide, shared);
@@ -216,6 +379,7 @@ void WesternShooterScene::UpdateGunman(Enemy& e, float dt, AiShared& shared)
         }
         if (inPosition) {
             if (shared.shooters < kMaxShooters) {
+                e.flankArrived = true;
                 EnterState(e, AiState::Shoot, shared);
             }
             else {
@@ -243,9 +407,16 @@ void WesternShooterScene::UpdateGunman(Enemy& e, float dt, AiShared& shared)
 
         e.fireTimer -= dt;
         if (e.fireTimer <= 0.0f && e.shotsLeft > 0) {
-            FireEnemyBullet(e);
-            --e.shotsLeft;
-            e.fireTimer = kGunmanShotInterval;
+            // 撃ち始めは順番待ち（陰から出た敵は、顔を出す時点で順番を取っている）
+            const bool first = e.shotsLeft == kGunmanBurst;
+            if (!first || e.fromCover || burstGate_ <= 0.0f) {
+                if (first && !e.fromCover) {
+                    burstGate_ = kBurstStagger;
+                }
+                FireEnemyBullet(e);
+                --e.shotsLeft;
+                e.fireTimer = kGunmanShotInterval;
+            }
         }
         if (e.shotsLeft <= 0 && e.fireTimer <= 0.0f) {
             // 撃ち終わった：同じ陰がまだ自機から見えなければそこへ戻る。見えるなら別の陰を探す
@@ -273,14 +444,21 @@ void WesternShooterScene::UpdateGunman(Enemy& e, float dt, AiShared& shared)
         e.coverCheck -= dt;
         if (e.coverCheck <= 0.0f) {
             e.coverCheck = kCoverCheckInterval;
-            if (e.coverRetry <= 0.0f && GridNav::HasLineOfSight(map_, playerPos_, e.coverPos)) {
-                if (ChooseCover(e, shared)) {
-                    const Vector2 cover = e.coverPos;
-                    EnterState(e, AiState::Hide, shared);
-                    shared.covers.push_back(cover);
-                    break;
+            if (GridNav::HasLineOfSight(map_, playerPos_, e.coverPos)) {
+                if (e.coverArrived) {
+                    // 陰に着いているのに自機から見える：逃げ回らず、ここから顔を出して撃つ（撃ち終えたら、前の陰へ詰める）
+                    e.stateTimer = (std::min)(e.stateTimer, 0.0f);
                 }
-                e.coverRetry = kCoverRetry;
+                else if (e.coverRetry <= 0.0f && e.coverSwitchTimer <= 0.0f) {
+                    // 向かっている途中で見えるようになった：選び直す（ただし立て続けには選び直さない）
+                    if (ChooseCover(e, shared)) {
+                        const Vector2 cover = e.coverPos;
+                        EnterState(e, AiState::Hide, shared);
+                        shared.covers.push_back(cover);
+                        break;
+                    }
+                    e.coverRetry = kCoverRetry;
+                }
             }
         }
 
@@ -296,11 +474,15 @@ void WesternShooterScene::UpdateGunman(Enemy& e, float dt, AiShared& shared)
         }
         else if (e.stateTimer <= 0.0f) {
             // 顔を出す番。同時に出られる数がいっぱいなら、もう少し待つ
-            if (shared.shooters >= kMaxShooters) {
-                e.stateTimer = 0.3f;
+            if (shared.shooters >= kMaxShooters || burstGate_ > 0.0f) {
+                e.stateTimer = 0.15f; // 人数がいっぱい、または別の敵が顔を出したばかり：順番を待つ
             }
             else if (GridNav::FindPeek(map_, e.coverPos, playerPos_, kGunmanRadius, kPeekMaxDist, kSightRange, e.peekPos)) {
                 EnterState(e, AiState::Peek, shared);
+                burstGate_ = kBurstStagger; // 順番を取る
+            }
+            else if (e.coverSwitchTimer > 0.0f) {
+                e.stateTimer = 0.2f; // 選び直したばかり：少し待つ
             }
             else if (e.coverRetry <= 0.0f && ChooseCover(e, shared)) {
                 const Vector2 cover = e.coverPos; // 自機が動いてこの陰からは狙えない：別の陰へ
@@ -339,6 +521,7 @@ bool WesternShooterScene::ChooseCover(Enemy& e, const AiShared& shared)
     q.minThreatDist = kCoverMinThreatDist;
     q.maxThreatDist = kCoverMaxThreatDist;
     q.radius = kGunmanRadius;
+    q.approachWeight = kCoverApproachWeight; // 隠れながら、自機に近い陰へ詰めていく
 
     Vector2 cover{};
     if (!GridNav::FindCover(map_, q, shared.covers, cover)) {
@@ -349,6 +532,7 @@ bool WesternShooterScene::ChooseCover(Enemy& e, const AiShared& shared)
         return false;
     }
     e.coverPos = cover;
+    e.coverSwitchTimer = kCoverSwitchCooldown;
     return true;
 }
 
@@ -374,6 +558,7 @@ void WesternShooterScene::EnterState(Enemy& e, AiState next, AiShared& shared)
     switch (next) {
     case AiState::Search:
         e.stateTimer = kSearchTime;
+        e.flankArrived = false; // 見失ったら、あらためて回り込む
         break;
     case AiState::Advance:
         e.flankValid = false; // 撃つ位置は、近づき直すたびに決め直す
@@ -524,6 +709,7 @@ void WesternShooterScene::TintEnemy(Enemy& e)
             if (e.state == AiState::Shoot) { r = 0.2f; g = 0.95f; b = 1.0f; }
             else if (e.state == AiState::Peek) { r = 0.55f; g = 0.8f; b = 1.0f; }
             else if (e.state == AiState::Hide) { r = 0.35f; g = 0.4f; b = 0.55f; }
+            else if (e.role == Role::Flank) { r = 0.3f; g = 0.9f; b = 0.45f; } // 回り込み中は緑
             else { r = 0.3f; g = 0.5f; b = 0.9f; }
         }
     }

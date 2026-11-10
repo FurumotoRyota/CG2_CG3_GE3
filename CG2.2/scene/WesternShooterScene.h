@@ -50,6 +50,7 @@ private:
     };
     // 敵の行動。ごろつき: Advance→Rush/Hold。ガンマン: Advance→Hide（陰へ）→Peek（顔を出す）→Shoot→Hide…（陰が無ければ Advance→Shoot）。どちらも見失うと Search
     enum class AiState { Advance, Rush, Hold, Shoot, Hide, Peek, Search };
+    enum class Role { None, Suppress, Flank };   // ガンマンの役割：抑え（陰から撃つ）／ 回り込み
 
     struct Enemy
     {
@@ -73,11 +74,15 @@ private:
         Vector2 peekPos{ 0.0f, 0.0f }; // ガンマン: 陰から顔を出して撃つ場所
         bool fromCover = false;        // ガンマン: いまの Shoot は陰から顔を出して撃っている（立ち止まって撃つ）
         float coverCheck = 0.0f;       // ガンマン: 隠れ場所が自機から見えていないか、次に確かめるまでの時間
+        float coverSwitchTimer = 0.0f; // ガンマン: 隠れ場所を選び直せるようになるまでの時間（うろうろ防止）
         float coverRetry = 0.0f;       // ガンマン: 陰を探し直せるようになるまでの時間
         Vector2 flankPos{ 0.0f, 0.0f };// ガンマン: 撃つために向かう場所（自機の左右に散る）
         bool flankValid = false;
         float flankAngle = 0.0f;       // ガンマン: 自機から見て、いまの位置からどれだけ回り込むか
         float strafeSign = 1.0f;       // 横移動の向き（+1 / -1）
+        Role role = Role::None;        // ガンマン: 役割（AssignSquad が決める）
+        float flankSide = 1.0f;        // ガンマン: 回り込む側（+1 / -1）
+        bool flankArrived = false;     // ガンマン: 回り込み役が、狙う位置に着いたか（着くまでは陰に入らない）
         int shotsLeft = 0;
     };
 
@@ -87,6 +92,10 @@ private:
         int rushers = 0;
         int shooters = 0;
         std::vector<Vector2> covers; // 他のガンマンが使っている隠れ場所
+        bool rushSignal = false;     // ごろつきがまとめて突っ込んでよい合図
+        int suppressorsFiring = 0;   // いま顔を出している抑え役の数
+        Vector2 front{ 0.0f, -1.0f };// 自機から見て、抑え役がいる向き
+        bool hasFront = false;
     };
     // ドア1つぶんの「あと何体出すか」（map_.spawns と同じ並び・同じ数）
     struct SpawnState
@@ -111,6 +120,7 @@ private:
     void UpdateVisuals();               // カメラと見た目の行列
 
     // --- 敵のAI（WesternShooterEnemyAI.cpp） ---
+    void AssignSquad(AiShared& shared, float dt);   // 仲間を呼ぶ・役割を決める・突っ込む合図を出す
     void UpdateEnemy(Enemy& e, float dt, AiShared& shared);
     void UpdateBrute(Enemy& e, float dt, AiShared& shared);
     void UpdateGunman(Enemy& e, float dt, AiShared& shared);
@@ -154,6 +164,9 @@ private:
     bool mapComplete_ = true;            // 壁・樽の見た目が全部作れたか
 
     std::vector<SpawnState> spawnStates_;
+    float burstGate_ = 0.0f;             // 敵が撃ち始められるようになるまでの時間（交互に撃たせる）
+    float rushWait_ = 0.0f;              // ごろつきが突っ込む合図を待っている時間
+    float callTimer_ = 0.0f;             // 仲間に居場所を教える間隔
     int currentArea_ = 0;                // いま戦っている区切り（出現点が無ければ kNoArea）
     Vector2 cameraFocus_{ 0.0f, 0.0f };  // カメラが見ている地面の点
 

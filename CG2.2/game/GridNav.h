@@ -33,6 +33,7 @@ namespace GridNav
         float minThreatDist = 4.0f;       // 相手に近すぎる場所は除く
         float maxThreatDist = 13.0f;      // 相手から遠すぎる場所は除く
         float radius = 0.6f;              // 立つ人の半径
+        float approachWeight = 0.0f;      // 大きいほど「相手に近い場所」を好む（0なら自分に近い場所だけで選ぶ。隠れながら前へ詰めたいときに使う）
         float margin = 1.5f;              // 相手が左右にこれだけ動いても見えない場所を選ぶ（0なら今の位置からだけ）
     };
 

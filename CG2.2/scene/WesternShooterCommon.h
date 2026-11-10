@@ -45,7 +45,18 @@ namespace WesternShooter
     inline constexpr float kPeekMaxDist = 3.5f;          // 隠れ場所から顔を出すために動く距離の上限
     inline constexpr float kPeekSpeed = 3.2f;            // 顔を出すときの速さ
     inline constexpr float kCoverCheckInterval = 0.25f;  // 隠れ場所が自機から見えていないか確かめる間隔
+    inline constexpr float kCoverApproachWeight = 0.8f;  // 隠れ場所を選ぶとき、自機に近い場所をどれだけ好むか（隠れながら前へ詰める）
+    inline constexpr float kCoverSwitchCooldown = 1.5f;  // 隠れ場所を選び直したあと、次に選び直せるようになるまでの時間
     inline constexpr float kCoverRetry = 1.0f;           // 隠れ場所が見つからなかったとき、探し直すまでの時間
+
+    // --- 敵の連携 ---
+    inline constexpr int kMaxSuppressors = 2;        // 陰から撃って抑える役の数（残りのガンマンは回り込む）
+    inline constexpr float kFlankAngle = 1.3f;       // 回り込み役が、抑え役のいる向きからどれだけ横へ回るか（ラジアン、約75度）
+    inline constexpr float kCallRadius = 22.0f;      // 自機を見つけた敵が、居場所を教える範囲
+    inline constexpr float kCallInterval = 0.4f;     // 教える間隔
+    inline constexpr float kBurstStagger = 0.8f;     // 誰かが撃ち始めてから、次の誰かが撃ち始めるまでの最短の間（交互に撃たせる）
+    inline constexpr int kRushGroup = 2;             // ごろつきがこの数そろって取り巻いたら、まとめて突っ込む
+    inline constexpr float kRushMaxWait = 3.0f;      // ガンマンが撃たなくても、この時間待ったら突っ込む
 
     // --- 敵の共通 ---
     inline constexpr float kSightRange = 16.0f;      // これより遠い自機は見えない

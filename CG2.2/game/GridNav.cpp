@@ -341,7 +341,7 @@ namespace GridNav
                         }
                     }
                 }
-                const float score = fromDist + (walls == 0 ? 3.0f : 0.0f) - 0.3f * static_cast<float>((std::min)(walls, 3));
+                const float score = fromDist + q.approachWeight * threatDist + (walls == 0 ? 3.0f : 0.0f) - 0.3f * static_cast<float>((std::min)(walls, 3));
                 if (score < bestScore) {
                     bestScore = score;
                     out = c;
