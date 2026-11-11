@@ -1,10 +1,6 @@
 ﻿#include "Game.h"
 #include "../scene/StartupScene.h"
 #include "../scene/TitleScene.h"
-#include "../scene/GameScene.h"
-#include "../scene/ChangelogScene.h"
-#include "../scene/GeometryShaderScene.h"
-#include "../scene/PoolTestScene.h"
 #include "../scene/WesternShooterScene.h"
 #include "../scene/MapEditorScene.h"
 #include "editor/EditorLayout.h"
@@ -69,23 +65,11 @@ void Game::DrawImGui()
             if (ImGui::MenuItem("タイトル")) {
                 sceneManager_.ChangeScene<TitleScene>();
             }
-            if (ImGui::MenuItem("ゲーム")) {
-                sceneManager_.ChangeScene<GameScene>();
-            }
-            if (ImGui::MenuItem("ジオメトリシェーダー")) {
-                sceneManager_.ChangeScene<GeometryShaderScene>();
-            }
-            if (ImGui::MenuItem("プール確認")) {
-                sceneManager_.ChangeScene<PoolTestScene>();
-            }
             if (ImGui::MenuItem("西部シューティング")) {
                 sceneManager_.ChangeScene<WesternShooterScene>();
             }
             if (ImGui::MenuItem("マップエディタ")) {
                 sceneManager_.ChangeScene<MapEditorScene>();
-            }
-            if (ImGui::MenuItem("更新履歴")) {
-                sceneManager_.ChangeScene<ChangelogScene>();
             }
             ImGui::EndMenu();
         }

@@ -2,6 +2,7 @@
 #include "../3d/Model.h"
 #include "../3d/ModelManager.h"
 #include "../3d/Object3dCommon.h"
+#include "../3d/SkinInstance.h"
 #include "../base/BasicPipeline.h"
 #include "../base/DirectXCommon.h"
 
@@ -40,6 +41,46 @@ void Object3d::SetModel(const std::string& modelName)
 {
     modelName_ = modelName;
     model_ = common_->GetModelManager()->Load(modelName);
+
+    // 骨つきモデルなら、この個体専用の頂点バッファ（アニメーションの結果を書く）を持つ
+    skin_.reset();
+    if (model_ && model_->IsSkinned()) {
+        skin_ = std::make_shared<SkinInstance>();
+        skin_->Initialize(common_->GetDxCommon(), model_->GetSkin());
+    }
+}
+
+bool Object3d::PlayAnimation(const std::string& clip, bool loop, float blend, float speed, bool restart)
+{
+    return skin_ ? skin_->Play(clip, loop, blend, speed, restart) : false;
+}
+
+void Object3d::UpdateSkin(float dt)
+{
+    if (skin_) {
+        skin_->Update(dt);
+    }
+}
+
+bool Object3d::HasAnimation(const std::string& clip) const
+{
+    return skin_ && skin_->HasClip(clip);
+}
+
+bool Object3d::IsAnimationFinished() const
+{
+    return skin_ && skin_->IsFinished();
+}
+
+bool Object3d::GetBonePointWorld(const std::string& boneName, const Vector3& restPoint, Vector3& out) const
+{
+    Vector3 local;
+    if (!skin_ || !skin_->SkinPoint(boneName, restPoint, local)) {
+        return false;
+    }
+    const Matrix4x4 world = Matrix4x4::MakeAffineMatrix(transform_.Scale, transform_.Rotate, transform_.Translate);
+    out = Matrix4x4::Transform(local, world);
+    return true;
 }
 
 void Object3d::Update(const Matrix4x4& viewMatrix, const Matrix4x4& projectionMatrix)
@@ -68,7 +109,7 @@ void Object3d::DrawShadow(ID3D12GraphicsCommandList* commandList)
         return;
     }
     commandList->SetGraphicsRootConstantBufferView(0, wvpResource_->GetGPUVirtualAddress()); // 影用ルートシグネチャのb0
-    model_->DrawGeometry(commandList);
+    model_->DrawGeometry(commandList, skin_ ? skin_->Views() : nullptr);
 }
 
 void Object3d::Draw()
@@ -78,5 +119,5 @@ void Object3d::Draw()
     ID3D12GraphicsCommandList* commandList = common_->GetDxCommon()->GetCommandList();
     commandList->SetGraphicsRootConstantBufferView(BasicPipeline::kRootMaterial, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(BasicPipeline::kRootTransform, wvpResource_->GetGPUVirtualAddress());
-    model_->Draw(commandList, useExternalTexture_ ? &externalSrv_ : nullptr);
+    model_->Draw(commandList, useExternalTexture_ ? &externalSrv_ : nullptr, skin_ ? skin_->Views() : nullptr);
 }

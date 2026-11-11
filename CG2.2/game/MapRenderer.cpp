@@ -50,6 +50,54 @@ namespace {
     }
     float Rand01(int x, int z, int salt) { return static_cast<float>(Hash(x, z, salt) & 0xFFFFu) / 65535.0f; }
 
+    // 3Dモデルの表。file=resources のファイル名、範囲=モデル自身の座標での x,z の広がり（置く・消す判定の大きさに使う）、capacity=同時に置ける数
+    //   モデルは原点が足元の真ん中。建物の正面はモデルの +z 側
+    struct ModelInfo
+    {
+        const char* file;
+        float minX, maxX, minZ, maxZ;
+        size_t capacity;
+    };
+    const ModelInfo kModels[] = {
+        { "ws_saloon_building.obj", -2.7f, 2.7f, -2.1f, 3.45f, 48 },
+        { "ws_general_store.obj", -2.2f, 2.2f, -1.7f, 2.5f, 48 },
+        { "ws_jail_cell.obj", -1.5f, 1.5f, -1.27f, 1.22f, 64 },
+        { "ws_wooden_barrel.obj", -0.41f, 0.41f, -0.43f, 0.43f, 64 },
+        { "ws_wooden_crate.obj", -0.42f, 0.42f, -0.4f, 0.43f, 320 },
+        { "ws_tnt_crate.obj", -0.45f, 0.45f, -0.3f, 0.32f, 80 },
+        { "ws_wagon.obj", -1.3f, 2.7f, -0.9f, 0.9f, 40 },
+        { "ws_covered_wagon.obj", -2.05f, 1.3f, -0.76f, 0.76f, 40 },
+        { "ws_saguaro_cactus.obj", -0.93f, 1.04f, -0.25f, 0.25f, 100 },
+        { "ws_barrel_cactus.obj", -0.44f, 0.42f, -0.45f, 0.44f, 60 },
+        { "ws_prickly_pear.obj", -0.57f, 0.58f, -0.07f, 0.11f, 80 },
+        { "ws_dry_bush.obj", -0.44f, 0.5f, -0.49f, 0.49f, 160 },
+        { "ws_bull_skull.obj", -0.75f, 0.75f, -0.28f, 0.45f, 40 },
+        { "ws_dead_tree.obj", -0.75f, 0.88f, -0.2f, 0.2f, 40 },
+        { "ws_hitching_post.obj", -0.95f, 0.95f, -0.06f, 0.06f, 24 },
+        { "ws_wanted_board.obj", -0.5f, 0.5f, -0.05f, 0.05f, 12 },
+        { "ws_water_tower.obj", -1.24f, 1.24f, -1.3f, 1.3f, 12 },
+        { "ws_windmill_pump.obj", -0.85f, 1.3f, -0.51f, 0.41f, 24 },
+        { "ws_mine_cart.obj", -1.0f, 1.0f, -0.46f, 0.46f, 24 },
+        { "ws_cattle_fence.obj", -1.5f, 1.5f, -0.07f, 0.08f, 60 },
+        { "ws_desert_rock_arch.obj", -1.91f, 1.65f, -0.59f, 0.68f, 24 },
+        { "ws_mesa_rock.obj", -1.8f, 1.8f, -1.8f, 1.8f, 60 },
+        { "ws_tumbleweed.obj", -0.38f, 0.33f, -0.33f, 0.38f, 100 },
+        { "ws_ribcage_bones.obj", -0.8f, 0.8f, -0.44f, 0.44f, 20 },
+        { "ws_campfire_pot.obj", -0.5f, 0.75f, -0.65f, 0.65f, 16 },
+        { "ws_cowboy_hat.obj", -0.5f, 0.5f, -0.5f, 0.5f, 16 },
+        { "ws_gold_nugget_pile.obj", -0.35f, 0.44f, -0.28f, 0.31f, 16 },
+        { "ws_horse_saddle.obj", -0.3f, 0.3f, -0.47f, 0.45f, 16 },
+    };
+    static_assert(sizeof(kModels) / sizeof(kModels[0]) == 28, "ModelId と kModels の数が合わない");
+
+    // 建物の種類ごとに使うモデル。width=モデルの正面の幅、backZ/frontZ=建物の本体の奥と正面（モデルの z。庇はその先）
+    struct BuildingModel
+    {
+        int model;
+        float width, backZ, frontZ, height;
+    };
+    constexpr float kPi = 3.14159265f;
+
     // 岩山の色（夕日に照らされた赤茶色）
     const Color kRock[3] = { { 0.64f, 0.43f, 0.31f }, { 0.72f, 0.51f, 0.37f }, { 0.56f, 0.38f, 0.29f } };
 }
@@ -67,6 +115,9 @@ void MapRenderer::Initialize(Object3dCommon* common, ModelManager* models)
     blockPool_.Initialize(common, kCubeName, kMaxBlocks);
     propPool_.Initialize(common, kCubeName, kMaxPropBlocks);
     buildingPool_.Initialize(common, kCubeName, kMaxBuildingBlocks);
+    for (int i = 0; i < kModelCount; ++i) {
+        modelPools_[i].Initialize(common, kModels[i].file, kModels[i].capacity);
+    }
     floor_.Initialize(common, kCubeName, { 0.0f, 0.0f, 0.0f });
     for (GameObject& g : gates_) {
         g.Initialize(common, kCubeName, { 0.0f, 0.0f, 0.0f });
@@ -90,6 +141,9 @@ bool MapRenderer::Build(const MapData& map)
     blockPool_.ReleaseAll();
     propPool_.ReleaseAll();
     buildingPool_.ReleaseAll();
+    for (GameObjectPool& p : modelPools_) {
+        p.ReleaseAll();
+    }
     blockItems_.clear();
     buildingItems_.clear();
     propItems_.clear();
@@ -188,9 +242,16 @@ bool MapRenderer::Build(const MapData& map)
                         if (Hash(x + i, z, 3) % 60u == 0) {
                             const float cx = x + i + 0.5f;
                             const float cz = z + 0.5f;
-                            complete &= AddProp(cx, h + 0.6f, cz, 0.3f, 1.2f, 0.3f, 0.28f, 0.46f, 0.22f);
-                            complete &= AddProp(cx + 0.28f, h + 0.75f, cz, 0.26f, 0.12f, 0.2f, 0.28f, 0.46f, 0.22f);
-                            complete &= AddProp(cx + 0.38f, h + 0.95f, cz, 0.12f, 0.4f, 0.2f, 0.28f, 0.46f, 0.22f);
+                            complete &= AddModel(kMSaguaro, cx, h, cz, Rand01(x + i, z, 31) * kPi * 2.0f, 0.45f, 0.45f, 0.45f);
+                        }
+                        else if (Hash(x + i, z, 4) % 70u == 0) {
+                            AddModel(kMMesa, x + i + 0.5f, h - 0.1f, z + 0.5f, Rand01(x + i, z, 32) * kPi * 2.0f, 0.5f, 0.5f, 0.5f); // 岩の上の小さな岩山
+                        }
+                        else if (Hash(x + i, z, 5) % 110u == 0) {
+                            AddModel(kMArch, x + i + 0.5f, h - 0.05f, z + 0.5f, (Hash(x + i, z, 6) % 2u) * kPi * 0.5f, 0.7f, 0.7f, 0.7f); // 岩のアーチ
+                        }
+                        else if (Hash(x + i, z, 7) % 160u == 0) {
+                            AddModel(kMWindmill, x + i + 0.5f, h, z + 0.5f, Rand01(x + i, z, 33) * kPi * 2.0f, 0.7f, 0.7f, 0.7f); // 風車
                         }
                     }
                 }
@@ -198,18 +259,8 @@ bool MapRenderer::Build(const MapData& map)
                 continue;
             }
 
-            // 樽（1マスずつ）。たがを巻く
-            GameObject* obj = blockPool_.Acquire({ x + 0.5f, kBarrelHeight * 0.5f, z + 0.5f });
-            if (obj) {
-                obj->GetObject3d().GetTransform().Scale = { 0.7f, kBarrelHeight, 0.7f };
-                SetTint(*obj, 0.6f, 0.35f, 0.15f);
-                Track(blockItems_, obj, x + 0.5f, z + 0.5f, 0.7f, 0.7f);
-            }
-            else {
-                complete = false;
-            }
-            complete &= AddProp(x + 0.5f, kBarrelHeight * 0.3f, z + 0.5f, 0.76f, 0.08f, 0.76f, 0.25f, 0.16f, 0.1f);
-            complete &= AddProp(x + 0.5f, kBarrelHeight * 0.72f, z + 0.5f, 0.76f, 0.08f, 0.76f, 0.25f, 0.16f, 0.1f);
+            // 樽（1マスずつ）
+            complete &= AddModel(kMBarrel, x + 0.5f, 0.0f, z + 0.5f, Rand01(x, z, 30) * kPi * 2.0f, 1.1f, 1.1f, 1.1f);
             ++x;
         }
     }
@@ -229,10 +280,65 @@ bool MapRenderer::Build(const MapData& map)
                     dark ? 0.72f : 0.90f, dark ? 0.55f : 0.74f, dark ? 0.36f : 0.5f);
             }
             else if (r % 29u == 1u) {
+                // 草のかたまりの代わりに、低木・ウチワサボテン・たる型サボテン・頭骨・枯れ木を散らす（足りなければ置かない）
                 const float gx = x + 0.3f + 0.4f * Rand01(x, z, 15);
                 const float gz = z + 0.3f + 0.4f * Rand01(x, z, 16);
-                complete &= AddProp(gx, 0.17f, gz, 0.08f, 0.34f, 0.08f, 0.62f, 0.56f, 0.25f);
-                complete &= AddProp(gx + 0.12f, 0.12f, gz + 0.06f, 0.07f, 0.24f, 0.07f, 0.55f, 0.5f, 0.22f);
+                const unsigned pick = (r >> 10) % 20u;
+                const float yaw = Rand01(x, z, 17) * kPi * 2.0f;
+                const float sc = 0.8f + 0.5f * Rand01(x, z, 18);
+                if (pick < 11u) {
+                    AddModel(kMDryBush, gx, 0.0f, gz, yaw, sc, sc, sc);
+                }
+                else if (pick < 15u) {
+                    AddModel(kMPricklyPear, gx, 0.0f, gz, yaw, sc, sc, sc);
+                }
+                else if (pick < 18u) {
+                    AddModel(kMBarrelCactus, gx, 0.0f, gz, yaw, sc * 0.8f, sc * 0.8f, sc * 0.8f);
+                }
+                else if (pick < 19u) {
+                    AddModel(kMSkull, gx, 0.0f, gz, yaw, 0.9f, 0.9f, 0.9f);
+                }
+                else {
+                    AddModel(kMDeadTree, gx, 0.0f, gz, yaw, 0.7f, 0.7f, 0.7f);
+                }
+            }
+            else {
+                // まれに置く大きめの飾り。通り道をふさがないよう、まわり2マスが空いている場所だけ
+                auto clear = [&](int radius) {
+                    for (int dz = -radius; dz <= radius; ++dz) {
+                        for (int dx = -radius; dx <= radius; ++dx) {
+                            if (map.Get(x + dx, z + dz) != MapData::Empty) {
+                                return false;
+                            }
+                        }
+                    }
+                    return true;
+                };
+                const float gx = x + 0.5f;
+                const float gz = z + 0.5f;
+                const float yaw = Rand01(x, z, 40) * kPi * 2.0f;
+                if (r % 97u == 2u) {
+                    const float sc = 0.9f + 0.4f * Rand01(x, z, 41);
+                    AddModel(kMTumbleweed, gx, 0.0f, gz, yaw, sc, sc, sc);
+                }
+                else if (r % 409u == 5u && clear(2)) {
+                    AddModel(kMCampfire, gx, 0.0f, gz, yaw, 1.0f, 1.0f, 1.0f);
+                }
+                else if (r % 331u == 7u && clear(2)) {
+                    AddModel(kMMineCart, gx, 0.0f, gz, (Hash(x, z, 42) % 2u) * kPi * 0.5f, 1.0f, 1.0f, 1.0f);
+                }
+                else if (r % 463u == 11u) {
+                    AddModel(kMRibcage, gx, 0.0f, gz, yaw, 1.0f, 1.0f, 1.0f);
+                }
+                else if (r % 521u == 13u) {
+                    AddModel(kMGold, gx, 0.0f, gz, yaw, 1.0f, 1.0f, 1.0f);
+                }
+                else if (r % 577u == 17u) {
+                    AddModel(kMSaddle, gx, 0.0f, gz, yaw, 1.0f, 1.0f, 1.0f);
+                }
+                else if (r % 83u == 19u && (map.Get(x, z + 1) != MapData::Empty || map.Get(x, z - 1) != MapData::Empty) && map.Get(x + 1, z) == MapData::Empty && map.Get(x - 1, z) == MapData::Empty) {
+                    AddModel(kMFence, gx, 0.0f, gz, 0.0f, 1.0f, 1.0f, 1.0f); // 壁ぎわの柵
+                }
             }
         }
     }
@@ -297,36 +403,90 @@ bool MapRenderer::AddBuilding(const MapData::BuildingRect& b)
     // 地面の影（建物の高さに応じて右側へ伸びる）
     ok &= AddShadow(static_cast<float>(b.x0), b.z0 + 0.3f, static_cast<float>(b.x1 + 1), static_cast<float>(b.z1 + 1), st.height * 1.1f);
 
-    // 壁（箱）と屋根
-    block(0.0f, st.height * 0.5f, D * 0.5f, W, st.height, D, st.body);
-    block(0.0f, st.height + 0.1f, D * 0.5f, W + 0.3f, 0.2f, D + 0.3f, st.roof);
+    // 3Dモデルの建物。正面の幅に合わせて横に並べ、奥行きにも並べる（建物の正面は、モデルの +z 側）
+    {
+        static const BuildingModel kBuildingModels[MapData::KindCount] = {
+            { kMSaloon, 5.4f, -2.1f, 2.12f, 4.4f },   // 酒場
+            { kMJail, 3.0f, -1.27f, 1.22f, 2.48f },   // 保安官事務所
+            { kMStore, 4.4f, -1.7f, 1.7f, 4.0f },     // 雑貨店
+        };
+        const BuildingModel& bm = kBuildingModels[b.kind >= 0 && b.kind < MapData::KindCount ? b.kind : 0];
 
-    // 酒場は、屋根の前に背の高い飾り板（西部劇の建物の正面）を立てる
-    if (b.kind == MapData::Saloon) {
-        block(0.0f, st.height + 0.2f + 0.45f, 0.15f, W, 0.9f, 0.3f, st.body);
-        block(0.0f, st.height + 0.2f + 0.9f + 0.05f, 0.15f, W + 0.2f, 0.1f, 0.4f, st.roof);
-    }
+        // 正面の向き（外へ向かう向き f）と、正面に沿った横の向き uv、正面の辺の真ん中 edge
+        float fx = 0.0f, fz = -1.0f, ux = 1.0f, uz = 0.0f, ex = centerX, ez = static_cast<float>(b.z0);
+        switch (b.facing) {
+        case MapData::FaceNorth: fx = 0.0f;  fz = 1.0f;  ux = -1.0f; uz = 0.0f;  ex = centerX; ez = b.z1 + 1.0f; break;
+        case MapData::FaceWest:  fx = -1.0f; fz = 0.0f;  ux = 0.0f;  uz = -1.0f; ex = static_cast<float>(b.x0); ez = centerZ; break;
+        case MapData::FaceEast:  fx = 1.0f;  fz = 0.0f;  ux = 0.0f;  uz = 1.0f;  ex = b.x1 + 1.0f; ez = centerZ; break;
+        default: break;
+        }
+        const float yaw = std::atan2(fx, fz); // モデルの +z を、外へ向かう向きに回す
 
-    // 正面の庇（1マスぶん張り出す）と、両端の柱
-    block(0.0f, kPorchHeight, -0.5f, W, 0.12f, 1.0f, st.roof);
-    block(-(W * 0.5f - 0.12f), kPorchHeight * 0.5f, -0.92f, 0.14f, kPorchHeight, 0.14f, st.roof);
-    block(W * 0.5f - 0.12f, kPorchHeight * 0.5f, -0.92f, 0.14f, kPorchHeight, 0.14f, st.roof);
+        // 1棟につきモデル1つ。幅は建物の正面いっぱいに伸ばし、奥行きは庇が通りへ出すぎない程度まで伸ばす。
+        // 奥の残りは、箱で埋める（つなげて並べると、建物が連結して見えるため、並べない）
+        const float bodyDepth = bm.frontZ - bm.backZ;
+        const float sx = W / bm.width;
+        const float sz = (std::min)(D / bodyDepth, 1.7f);
+        const float sy = 1.35f;
+        ok &= AddModel(static_cast<ModelId>(bm.model), ex - fx * (bm.frontZ * sz), 0.0f, ez - fz * (bm.frontZ * sz), yaw, sx, sy, sz);
+        const float modelBack = bodyDepth * sz; // 正面から、モデルの本体の奥までの距離
+        if (D - modelBack > 0.2f) {
+            const float h = bm.height * sy * 0.97f;
+            const float vMid = (modelBack - 0.1f + D) * 0.5f;
+            block(0.0f, h * 0.5f, vMid, W, h, D - modelBack + 0.1f, st.body);
+            block(0.0f, h + 0.08f, vMid, W + 0.2f, 0.16f, D - modelBack + 0.3f, st.roof);
+        }
 
-    // 柱の上のランタン（夕暮れの灯り）
-    block(-(W * 0.5f - 0.12f), kPorchHeight + 0.2f, -0.92f, 0.2f, 0.26f, 0.2f, Color{ 1.0f, 0.82f, 0.35f });
-    block(W * 0.5f - 0.12f, kPorchHeight + 0.2f, -0.92f, 0.2f, 0.26f, 0.2f, Color{ 1.0f, 0.82f, 0.35f });
-
-    // 看板（庇の上）
-    const float signW = (std::min)((std::max)(W - 1.0f, 1.0f), 5.0f);
-    block(0.0f, kPorchHeight + 0.45f, -0.06f, signW, 0.5f, 0.12f, st.sign);
-
-    // 窓（3マスごと。幅が4マス以上のとき）
-    if (W >= 4.0f) {
-        for (float u = -W * 0.5f + 1.5f; u < W * 0.5f; u += 3.0f) {
-            block(u, 1.3f, -0.03f, 0.8f, 0.7f, 0.06f, st.window);
+        // 酒場の前に、馬をつなぐ柵。保安官事務所の前に、お尋ね者の掲示板
+        auto front = [&](float u, float out, ModelId id, float scale, float py = 0.0f) {
+            ok &= AddModel(id, ex + ux * u + fx * out, py, ez + uz * u + fz * out, yaw, scale, scale, scale);
+        };
+        // 屋根の上（建物の奥寄り）に置く。v=正面から奥への距離
+        auto roof = [&](float u, float v, ModelId id, float scale, float roofHeight) {
+            ok &= AddModel(id, ex + ux * u - fx * v, roofHeight, ez + uz * u - fz * v, yaw, scale, scale, scale);
+        };
+        const float roofH = bm.height * sy;
+        if (b.kind == MapData::Saloon && W >= 7.0f) {
+            front(-W * 0.3f, 2.6f, kMHitchingPost, 1.0f);
+            front(W * 0.3f, 2.6f, kMHitchingPost, 1.0f);
+            front(-W * 0.3f, 2.6f, kMSaddle, 0.7f, 0.5f);          // 柵に掛けた鞍
+            front(W * 0.5f - 1.3f, 1.0f, kMBarrel, 1.1f);          // 入口の両わきの樽と木箱
+            front(-(W * 0.5f - 1.3f), 1.0f, kMBarrel, 1.1f);
+            front(-(W * 0.5f - 1.3f), 1.0f, kMHat, 0.6f, 1.0f);    // 樽の上のカウボーイハット
+            front(W * 0.5f - 2.4f, 0.9f, kMCrate, 1.1f);
+            front(W * 0.5f - 2.4f, 0.9f, kMCrate, 0.9f, 0.95f);
+        }
+        else if (b.kind == MapData::Sheriff && W >= 7.0f) {
+            front(W * 0.3f, 1.4f, kMWantedBoard, 1.0f);
+            front(W * 0.3f - 1.4f, 1.3f, kMGold, 1.0f);            // 押収した金塊
+            front(-W * 0.3f, 1.6f, kMHitchingPost, 1.0f);
+            front(-W * 0.3f - 1.6f, 1.3f, kMTnt, 1.1f);
+            roof(W * 0.28f, D * 0.7f, kMWindmill, 0.7f, roofH);   // 屋根の上の風車
+        }
+        else if (b.kind == MapData::Store && W >= 7.0f) {
+            front(-W * 0.25f, 1.3f, kMCrate, 1.1f);
+            front(-W * 0.25f, 1.3f, kMCrate, 0.95f, 0.92f);
+            front(W * 0.25f, 1.2f, kMBarrel, 1.1f);
+            front(W * 0.25f + 1.2f, 1.2f, kMBarrel, 1.1f);
+            roof(-W * 0.25f, D * 0.7f, kMWaterTower, 0.7f, roofH); // 屋根の上の給水塔
         }
     }
     return ok;
+}
+
+bool MapRenderer::AddModel(ModelId id, float px, float py, float pz, float yaw, float sx, float sy, float sz)
+{
+    GameObject* obj = modelPools_[id].Acquire({ px, py, pz });
+    if (!obj) {
+        return false;
+    }
+    Transform& t = obj->GetObject3d().GetTransform();
+    t.Scale = { sx, sy, sz };
+    t.Rotate = { 0.0f, yaw, 0.0f };
+    const ModelInfo& m = kModels[id];
+    // 画面の外かどうかの判定用の大きさ。原点が真ん中とは限らないので、余裕を足す
+    Track(propItems_, obj, px, pz, (m.maxX - m.minX) * sx + 2.0f, (m.maxZ - m.minZ) * sz + 2.0f);
+    return true;
 }
 
 bool MapRenderer::AddProp(float px, float py, float pz, float sx, float sy, float sz, float r, float g, float b)
@@ -358,35 +518,38 @@ bool MapRenderer::AddCover(int x0, int z0, int x1, int z1)
     const float S = alongX ? d : w;                // 短い辺
     bool ok = AddShadow(static_cast<float>(x0), z0 + 0.15f, static_cast<float>(x1 + 1), static_cast<float>(z1 + 1), 1.0f);
 
-    // 長い辺に沿った (a: 長辺方向, b: 短辺方向) をワールドの箱へ直す
-    auto box = [&](float a, float y, float b, float la, float sy, float lb, float r, float g, float bl) {
-        const float px = cx + (alongX ? a : b);
-        const float pz = cz + (alongX ? b : a);
-        return AddProp(px, y, pz, alongX ? la : lb, sy, alongX ? lb : la, r, g, bl);
-    };
-
     if (L >= 3.0f && S >= 2.0f) {
-        // 荷馬車：荷台・車輪・幌
-        ok &= box(0.0f, 0.85f, 0.0f, L, 0.5f, S, 0.50f, 0.32f, 0.17f);
-        for (int side = -1; side <= 1; side += 2) {
-            for (int end = -1; end <= 1; end += 2) {
-                ok &= box(end * (L * 0.5f - 0.7f), 0.55f, side * (S * 0.5f + 0.02f), 1.1f, 1.1f, 0.14f, 0.24f, 0.16f, 0.10f);
+        // 荷馬車（幌つきか、ふつうのもの）。長い辺に沿って並べる
+        const bool covered = (Hash(x0, z0, 21) % 2u) == 0u;
+        const ModelId id = covered ? kMCoveredWagon : kMWagon;
+        const float len = covered ? 3.35f : 4.0f;
+        const float center = covered ? -0.375f : 0.7f; // モデルの x の真ん中（原点とのずれ）
+        const int n = (std::max)(1, static_cast<int>(std::lround(L / (len + 0.3f))));
+        const float sLen = (std::min)((std::max)(L / (static_cast<float>(n) * len), 0.6f), 1.25f);
+        const float sWid = (std::min)((std::max)(S / 1.8f, 0.8f), 1.3f);
+        const float sy = (sLen + sWid) * 0.5f;
+        for (int i = 0; i < n; ++i) {
+            const float a = -L * 0.5f + (static_cast<float>(i) + 0.5f) * L / static_cast<float>(n);
+            if (alongX) {
+                ok &= AddModel(id, cx + a - center * sLen, 0.0f, cz, 0.0f, sLen, sy, sWid);
             }
-        }
-        if (L >= 4.0f) {
-            ok &= box(0.0f, 1.65f, 0.0f, L - 0.6f, 1.0f, S - 0.4f, 0.86f, 0.80f, 0.64f); // 幌
-        }
-        else {
-            ok &= box(-L * 0.2f, 1.45f, 0.0f, 0.9f, 0.7f, (std::min)(0.9f, S - 0.3f), 0.64f, 0.46f, 0.26f); // 荷物
-            ok &= box(L * 0.2f, 1.4f, 0.0f, 0.8f, 0.6f, (std::min)(0.8f, S - 0.3f), 0.55f, 0.38f, 0.20f);
+            else {
+                // yaw=90度のとき、モデルの +x はワールドの -z を向く
+                ok &= AddModel(id, cx, 0.0f, cz + a + center * sLen, kPi * 0.5f, sLen, sy, sWid);
+            }
         }
     }
     else {
-        // 木箱の山
-        ok &= box(0.0f, 0.6f, 0.0f, L, 1.2f, S, 0.63f, 0.46f, 0.26f);
-        ok &= box(0.0f, 1.25f, 0.0f, L + 0.1f, 0.1f, S + 0.1f, 0.50f, 0.35f, 0.18f);   // ふち
-        if (L >= 2.0f && S >= 2.0f) {
-            ok &= box(0.0f, 1.65f, 0.0f, L * 0.5f, 0.7f, S * 0.5f, 0.72f, 0.54f, 0.32f); // 上に小さな箱
+        // 木箱の山：1マスに1つ。ときどき上にもう1つ積む。火薬箱が混ざる
+        for (int z = z0; z <= z1; ++z) {
+            for (int x = x0; x <= x1; ++x) {
+                const bool tnt = Hash(x, z, 22) % 6u == 0u;
+                const float yaw = Rand01(x, z, 23) * kPi * 2.0f;
+                ok &= AddModel(tnt ? kMTnt : kMCrate, x + 0.5f, 0.0f, z + 0.5f, yaw, 1.15f, 1.15f, 1.15f);
+                if (Hash(x, z, 24) % 3u == 0u) {
+                    ok &= AddModel(kMCrate, x + 0.5f, 0.92f, z + 0.5f, Rand01(x, z, 25) * kPi * 2.0f, 1.0f, 1.0f, 1.0f);
+                }
+            }
         }
     }
     return ok;

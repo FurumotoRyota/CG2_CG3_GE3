@@ -41,6 +41,9 @@ namespace {
 
 float WesternShooterScene::RadiusOf(EnemyType type)
 {
+    if (type == EnemyType::Boss) {
+        return kBossRadius;
+    }
     return (type == EnemyType::Brute) ? kBruteRadius : kGunmanRadius;
 }
 
@@ -68,7 +71,13 @@ void WesternShooterScene::UpdateEnemies(float dt)
     AssignSquad(shared, dt);
 
     for (Enemy& e : enemies_) {
-        if (e.obj) {
+        if (!e.obj) {
+            continue;
+        }
+        if (e.spawnT > 0.0f) {
+            UpdateSpawnFlight(e, dt); // 飛び出している間は、考えずに飛ぶだけ
+        }
+        else {
             UpdateEnemy(e, dt, shared);
         }
     }
@@ -79,9 +88,163 @@ void WesternShooterScene::UpdateEnemies(float dt)
         if (!e.obj) {
             continue;
         }
-        PushOutOfWalls(e.pos, RadiusOf(e.type)); // 押し離されて壁にめり込んだら戻す
+        if (e.spawnT <= 0.0f) {
+            PushOutOfWalls(e.pos, RadiusOf(e.type)); // 押し離されて壁にめり込んだら戻す（飛んでいる間は壁をこえる）
+        }
         Place(*e.obj, e.pos);
+        // 人型の向き：ふだんは自機の方、突進中は突進の向き（モデルの +z が正面）
+        {
+            Vector2 look = { playerPos_.x - e.pos.x, playerPos_.y - e.pos.y };
+            if (e.type == EnemyType::Brute && e.state == AiState::Rush && e.rushPhase > 0) {
+                look = e.aimDir;
+            }
+            if (Length2D(look) > 0.01f) {
+                e.obj->GetObject3d().GetTransform().Rotate.y = std::atan2(look.x, look.y);
+            }
+        }
+        if (e.spawnT > 0.0f) {
+            e.obj->GetObject3d().GetTransform().Translate.y = kHeight + e.flightY; // 飛んでいる高さ
+        }
+        if (e.spawnT <= 0.0f) {
+            AnimateEnemy(e, dt);
+        }
+        else {
+            e.obj->GetObject3d().PlayAnimation("Roll", true, 0.05f); // 飛んでいる間は体を丸める
+            e.obj->GetObject3d().UpdateSkin(dt);
+        }
         TintEnemy(e);
+    }
+}
+
+// ---------------------------------------------------------------- 骨のアニメーションの選び方
+// 行動に合わせて、待機・歩き・走り・構え・しゃがみなどを選ぶ。撃つ・やられは、その瞬間に流し始めて animLock の間は切り替えない
+void WesternShooterScene::AnimateEnemy(Enemy& e, float dt)
+{
+    Object3d& o = e.obj->GetObject3d();
+    Transform& tr = o.GetTransform();
+    const bool boss = e.type == EnemyType::Boss;
+    const float base = (e.type == EnemyType::Brute) ? kBruteScale : (boss ? kBossScale : kGunmanScale);
+    tr.Translate.y = kHeight;
+    tr.Rotate.x = 0.0f;
+    tr.Rotate.z = 0.0f;
+    tr.Scale = { base, base, base };
+
+    // 歩く速さ（時間が止まっている間は変えない）
+    float speed = 0.0f;
+    if (dt > 0.0f) {
+        if (e.prevValid) {
+            speed = Length2D({ e.pos.x - e.prevPos.x, e.pos.y - e.prevPos.y }) / dt;
+        }
+        e.prevPos = e.pos;
+        e.prevValid = true;
+        const float target = (std::min)(speed / 4.0f, 1.3f);
+        e.walkAmt += (target - e.walkAmt) * (std::min)(1.0f, dt * 10.0f);
+        const float before = e.walkPhase;
+        e.walkPhase += dt * (7.0f + speed * 0.9f);
+        e.animLock = (std::max)(0.0f, e.animLock - dt);
+        // ボスは足を着くたびに、少し土ぼこり
+        if (boss && e.walkAmt > 0.5f && std::floor(before / 3.1415927f) != std::floor(e.walkPhase / 3.1415927f)) {
+            dust_.Emit({ e.pos.x, 0.15f, e.pos.y }, 2, 1.2f, 0.4f, 0.4f, 0.82f, 0.72f, 0.52f);
+        }
+    }
+
+    if (e.animLock <= 0.0f) {
+        const float size = boss ? 1.3f : 1.0f; // ボスは歩幅が大きいぶん、速く動いても足の回転は遅くてよい
+        const char* clip = "Idle";
+        float playSpeed = 1.0f;
+        if (e.type == EnemyType::Brute && e.state == AiState::Rush) {
+            clip = (e.rushPhase == 0) ? "Windup" : (e.rushPhase == 1 ? "Run" : "Tired"); // 構え・突進・息切れ
+            if (e.rushPhase == 1) {
+                playSpeed = std::clamp(speed / (5.1f * size), 0.8f, 1.6f);
+            }
+        }
+        else if (e.type == EnemyType::Gunman && e.state == AiState::Hide && e.walkAmt < 0.3f) {
+            clip = "Crouch"; // 物陰にしゃがむ
+        }
+        else if (boss && e.bossState == BossState::Telegraph) {
+            clip = "Windup"; // 撃つ前に大きくのけぞる
+        }
+        else if (e.walkAmt > 0.2f) {
+            if (speed > 3.6f * size) {
+                clip = "Run";
+                playSpeed = std::clamp(speed / (5.1f * size), 0.6f, 1.6f);
+            }
+            else {
+                clip = "Walk";
+                playSpeed = std::clamp(speed / (2.2f * size), 0.5f, 2.0f);
+            }
+        }
+        o.PlayAnimation(clip, true, 0.12f, playSpeed);
+    }
+    o.UpdateSkin(dt);
+}
+
+// ---------------------------------------------------------------- 登場の飛び出し
+
+void WesternShooterScene::UpdateSpawnFlight(Enemy& e, float dt)
+{
+    e.spawnT = (std::max)(0.0f, e.spawnT - dt);
+    const float t = 1.0f - e.spawnT / e.spawnDur;                  // 0 → 1
+    e.pos.x = e.spawnFrom.x + (e.spawnTo.x - e.spawnFrom.x) * t;
+    e.pos.y = e.spawnFrom.y + (e.spawnTo.y - e.spawnFrom.y) * t;
+    e.flightY = 4.0f * e.flightPeak * t * (1.0f - t);              // 放物線
+
+    Transform& tr = e.obj->GetObject3d().GetTransform();
+    if (e.spawnT > 0.0f) {
+        // 空中で1回転（ボスはゆっくり、ふつうの敵は勢いよく）
+        const float turns = (e.type == EnemyType::Boss) ? 1.0f : 2.0f;
+        tr.Rotate = { t * 6.2831853f * turns, 0.0f, 0.0f };
+        return;
+    }
+    tr.Rotate = { 0.0f, 0.0f, 0.0f };
+    e.flightY = 0.0f;
+    LandEnemy(e);
+}
+
+void WesternShooterScene::LandEnemy(Enemy& e)
+{
+    const bool boss = e.type == EnemyType::Boss;
+    const float stomp = boss ? kBossStompRadius : kSpawnStompRadius;
+
+    // 着地：ドーンと揺れ、砂ぼこりが輪になって広がる
+    fx_.Shake(boss ? 0.7f : 0.3f, boss ? 0.5f : 0.25f);
+    fx_.HitStop(boss ? 6 : 2);
+    dust_.Emit({ e.pos.x, 0.2f, e.pos.y }, boss ? 30 : 14, boss ? 6.0f : 4.5f, boss ? 1.0f : 0.7f, 0.8f, 0.82f, 0.72f, 0.52f);
+    const int ring = boss ? 20 : 12;
+    for (int i = 0; i < ring; ++i) {
+        const float angle = 6.2831853f * static_cast<float>(i) / static_cast<float>(ring);
+        dust_.EmitBurst({ e.pos.x, 0.2f, e.pos.y }, { std::cos(angle), 0.15f, std::sin(angle) }, 2, boss ? 11.0f : 8.0f, 0.15f, boss ? 0.5f : 0.35f, 0.6f, 0.85f, 0.75f, 0.55f, 0.0f, 1.0f, false);
+    }
+
+    // 登場演出の最中：色つきの光の柱と煙（戦隊モノ風）。ボスは金色で大きく、画面が白く光る
+    if (cutscene_.kind != CutsceneKind::None) {
+        static const float kColors[6][3] = {
+            { 1.0f, 0.15f, 0.15f }, { 0.2f, 0.45f, 1.0f }, { 1.0f, 0.85f, 0.1f },
+            { 0.2f, 0.9f, 0.3f }, { 1.0f, 0.4f, 0.75f }, { 0.7f, 0.35f, 1.0f } };
+        if (!boss) {
+            // 整列の演出：着地では煙だけ。色つきの光の柱は、左から順にポーズを決める瞬間に立つ
+            dust_.Emit({ e.pos.x, 0.3f, e.pos.y }, 8, 2.6f, 0.8f, 1.0f, 0.82f, 0.72f, 0.52f);
+            return;
+        }
+        Pillar p;
+        p.pos = e.pos;
+        p.scale = boss ? 2.4f : 1.0f;
+        if (boss) {
+            p.r = 1.0f; p.g = 0.78f; p.b = 0.2f;
+            cutscene_.flash = 1.0f;
+        }
+        else {
+            const float* col = kColors[e.id % 6];
+            p.r = col[0]; p.g = col[1]; p.b = col[2];
+        }
+        pillars_.push_back(p);
+        dust_.Emit({ e.pos.x, 0.3f, e.pos.y }, boss ? 20 : 10, 3.0f, 0.9f, 1.1f, p.r, p.g, p.b);
+        return; // 演出中は踏みつぶさない
+    }
+
+    // 踏みつぶし：着地点の近くにいた自機はダメージ（転がっていれば避けられる）
+    if (state_ == State::Playing && Length2D({ playerPos_.x - e.pos.x, playerPos_.y - e.pos.y }) < stomp + kPlayerRadius * 0.5f) {
+        DamagePlayer();
     }
 }
 
@@ -224,10 +387,15 @@ void WesternShooterScene::AssignSquad(AiShared& shared, float dt)
 
 void WesternShooterScene::UpdateEnemy(Enemy& e, float dt, AiShared& shared)
 {
+    if (e.type == EnemyType::Boss) {
+        UpdateBoss(e, dt); // ボスは専用の動き（見失う・探す・隠れるは無い）
+        return;
+    }
     const float radius = RadiusOf(e.type);
     const float dist = Length2D({ playerPos_.x - e.pos.x, playerPos_.y - e.pos.y });
 
     e.coverRetry = (std::max)(0.0f, e.coverRetry - dt);
+    e.hitFlash = (std::max)(0.0f, e.hitFlash - dt);
     e.coverSwitchTimer = (std::max)(0.0f, e.coverSwitchTimer - dt);
 
     // 1. 見える？
@@ -280,6 +448,12 @@ void WesternShooterScene::UpdateBrute(Enemy& e, float dt, AiShared& shared)
         if (e.sees && dist < kRushDistance) {
             EnterState(e, AiState::Hold, shared);
         }
+        else if (dist > kRushDistance + 4.0f) {
+            // 遠いうちは、自機のまわりの自分の方角へ向かう（全員が同じ道で一か所に固まらず、四方から囲む）
+            const float ang = static_cast<float>(e.id) * 2.4f;
+            const Vector2 target = { playerPos_.x + std::cos(ang) * kHoldRing, playerPos_.y + std::sin(ang) * kHoldRing };
+            MoveToward(e, target, kBruteRadius, kBruteSpeed, dt);
+        }
         else {
             MoveToward(e, playerPos_, kBruteRadius, kBruteSpeed, dt);
         }
@@ -298,9 +472,35 @@ void WesternShooterScene::UpdateBrute(Enemy& e, float dt, AiShared& shared)
         }
         break;
 
-    case AiState::Rush:
-        MoveToward(e, playerPos_, kBruteRadius, kBruteRushSpeed, dt);
+    case AiState::Rush: {
+        // 突っ込む：構える（線が見える。最後は向きが固定される）→ 固定した向きへ一直線に突進 → 息切れ
+        e.rushTimer -= dt;
+        if (e.rushPhase == 0) {
+            if (e.rushTimer > kAimLockTime) {
+                e.aimDir = Normalized({ playerPos_.x - e.pos.x, playerPos_.y - e.pos.y }, { 0.0f, -1.0f });
+                e.aimLocked = false;
+            }
+            else {
+                e.aimLocked = true;
+            }
+            if (e.rushTimer <= 0.0f) {
+                e.rushPhase = 1;
+                e.rushTimer = kBruteChargeTime;
+            }
+        }
+        else if (e.rushPhase == 1) {
+            // 壁にぶつかるか、時間が来たら息切れ
+            if (!TryStep(e, e.aimDir, kBruteRadius, kBruteChargeSpeed, dt) || e.rushTimer <= 0.0f) {
+                e.rushPhase = 2;
+                e.rushTimer = kBruteRecoverTime;
+                e.aimLocked = false;
+            }
+        }
+        else if (e.rushTimer <= 0.0f) {
+            EnterState(e, AiState::Advance, shared);
+        }
         break;
+    }
 
     default:
         EnterState(e, AiState::Advance, shared);
@@ -405,6 +605,16 @@ void WesternShooterScene::UpdateGunman(Enemy& e, float dt, AiShared& shared)
             }
         }
 
+        // 狙いの線：構え始めは自機を追い、撃つ直前に向きを固定する（動けば避けられる）
+        if (e.shotsLeft > 0) {
+            if (e.fireTimer > kAimLockTime) {
+                e.aimDir = dirToPlayer;
+                e.aimLocked = false;
+            }
+            else {
+                e.aimLocked = true;
+            }
+        }
         e.fireTimer -= dt;
         if (e.fireTimer <= 0.0f && e.shotsLeft > 0) {
             // 撃ち始めは順番待ち（陰から出た敵は、顔を出す時点で順番を取っている）
@@ -414,8 +624,13 @@ void WesternShooterScene::UpdateGunman(Enemy& e, float dt, AiShared& shared)
                     burstGate_ = kBurstStagger;
                 }
                 FireEnemyBullet(e);
+                e.obj->GetObject3d().PlayAnimation("Shoot", false, 0.03f); // 撃つ：腕が跳ね上がる
+                e.animLock = 0.3f;
                 --e.shotsLeft;
                 e.fireTimer = kGunmanShotInterval;
+            }
+            else {
+                e.fireTimer = kGunmanAimTime * 0.5f; // 順番待ち：構え直して、狙いの線をもう一度見せる
             }
         }
         if (e.shotsLeft <= 0 && e.fireTimer <= 0.0f) {
@@ -556,6 +771,11 @@ void WesternShooterScene::EnterState(Enemy& e, AiState next, AiShared& shared)
     e.fromCover = false;
 
     switch (next) {
+    case AiState::Rush:
+        e.rushPhase = 0;
+        e.rushTimer = kBruteAimTime;
+        e.aimLocked = false;
+        break;
     case AiState::Search:
         e.stateTimer = kSearchTime;
         e.flankArrived = false; // 見失ったら、あらためて回り込む
@@ -565,7 +785,8 @@ void WesternShooterScene::EnterState(Enemy& e, AiState next, AiShared& shared)
         break;
     case AiState::Shoot:
         e.shotsLeft = kGunmanBurst;
-        e.fireTimer = 0.5f; // 構えてから撃つまでの間
+        e.fireTimer = kGunmanAimTime; // 構えてから撃つまでの間（狙いの線が見える）
+        e.aimLocked = false;
         break;
     case AiState::Hide:
         e.coverArrived = false;
@@ -672,7 +893,8 @@ void WesternShooterScene::SeparateEnemies()
             if (!b.obj) {
                 continue;
             }
-            const float minDist = (RadiusOf(a.type) + RadiusOf(b.type)) * 0.9f;
+            // 固まりすぎないように、少し余裕をもって離れる（デッドアイでまとめて狙われにくくする）
+            const float minDist = (RadiusOf(a.type) + RadiusOf(b.type)) * 1.6f;
             const Vector2 d = { b.pos.x - a.pos.x, b.pos.y - a.pos.y };
             const float dist = Length2D(d);
             if (dist >= minDist) {
@@ -692,6 +914,17 @@ void WesternShooterScene::SeparateEnemies()
 
 void WesternShooterScene::TintEnemy(Enemy& e)
 {
+    if (e.type == EnemyType::Boss) {
+        float r = 0.55f, g = 0.15f, b = 0.65f;                        // 歩き（紫）
+        if (e.bossState == BossState::Telegraph) { r = 1.0f; g = e.aimLocked ? 0.9f : 0.2f; b = 0.1f; } // 構え（赤→固定で黄）
+        else if (e.bossState == BossState::Fire) { r = 1.0f; g = 0.5f; b = 0.2f; }
+        else if (e.bossState == BossState::Recover) { r = 1.0f; g = 0.85f; b = 0.2f; }                 // 隙（金色：いまが撃ちどき）
+        if (e.hitFlash > 0.0f) {
+            r = g = b = 1.0f;
+        }
+        SetTint(*e.obj, r, g, b);
+        return;
+    }
     float r = 0.9f, g = 0.3f, b = 0.3f; // ごろつき（ふだんの色）
     if (e.type == EnemyType::Gunman) {
         r = 0.3f; g = 0.5f; b = 0.9f;
@@ -713,5 +946,132 @@ void WesternShooterScene::TintEnemy(Enemy& e)
             else { r = 0.3f; g = 0.5f; b = 0.9f; }
         }
     }
+    if (e.hitFlash > 0.0f) {
+        r = g = b = 1.0f; // 弾が当たった直後は白く光る
+    }
     SetTint(*e.obj, r, g, b);
+}
+
+// ---------------------------------------------------------------- ボス
+
+void WesternShooterScene::EnterBossState(Enemy& e, BossState next)
+{
+    const bool enraged = e.hp * 2 <= kBossHp;   // HP半分以下：構え・隙が短くなる
+    const float rush = enraged ? kBossEnrageScale : 1.0f;
+    e.bossState = next;
+    e.aimLocked = false;
+    switch (next) {
+    case BossState::Pace:
+        e.bossTimer = (kBossPaceMin + kBossPaceRange * Random01()) * rush;
+        break;
+    case BossState::Telegraph:
+        // 扇と連射を交互に。向きは自機の方向から（固定されるまで追う）
+        e.bossAttack = (e.bossCount % 2 == 0) ? BossAttack::Fan : BossAttack::Burst;
+        ++e.bossCount;
+        e.aimDir = Normalized({ playerPos_.x - e.pos.x, playerPos_.y - e.pos.y }, { 0.0f, -1.0f });
+        e.bossTimer = kBossTelegraph * rush;
+        break;
+    case BossState::Fire:
+        e.obj->GetObject3d().PlayAnimation("Shoot", false, 0.04f); // 撃つ
+        e.animLock = 0.4f;
+        e.shotsLeft = (e.bossAttack == BossAttack::Burst) ? kBossBurstCount + (enraged ? 3 : 0) : 1;
+        e.fireTimer = 0.0f;
+        break;
+    case BossState::Recover:
+        e.bossTimer = kBossRecover * rush;
+        break;
+    case BossState::Intro:
+        break;
+    }
+}
+
+void WesternShooterScene::UpdateBoss(Enemy& e, float dt)
+{
+    e.hitFlash = (std::max)(0.0f, e.hitFlash - dt);
+    e.bossTimer -= dt;
+
+    const Vector2 toPlayer = { playerPos_.x - e.pos.x, playerPos_.y - e.pos.y };
+    const float dist = Length2D(toPlayer);
+    const Vector2 dirToPlayer = Normalized(toPlayer, { 0.0f, -1.0f });
+    const bool enraged = e.hp * 2 <= kBossHp;
+    e.sees = GridNav::HasLineOfSight(map_, e.pos, playerPos_);
+
+    // 体当たり：触れたらダメージ（無敵・転がり中は当たらない）
+    if (dist < kBossRadius + kPlayerRadius) {
+        DamagePlayer();
+    }
+
+    switch (e.bossState) {
+    case BossState::Intro:
+        // 登場：にらみ合い。撃たない
+        if (e.bossTimer <= 0.0f) {
+            EnterBossState(e, BossState::Pace);
+        }
+        break;
+
+    case BossState::Pace: {
+        // 自機が見えなければ近づく。見えたら、間合いを保ちながら横へ歩く
+        const float speed = kBossSpeed * (enraged ? 1.3f : 1.0f);
+        if (!e.sees) {
+            MoveToward(e, playerPos_, kBossRadius, speed, dt);
+        }
+        else {
+            const Vector2 side = { -dirToPlayer.y * e.strafeSign, dirToPlayer.x * e.strafeSign };
+            const float radial = std::clamp((dist - kBossKeepDistance) * 0.5f, -1.0f, 1.0f);
+            const Vector2 dir = { side.x + dirToPlayer.x * radial, side.y + dirToPlayer.y * radial };
+            if (!TryStep(e, dir, kBossRadius, speed, dt)) {
+                e.strafeSign = -e.strafeSign; // 壁にぶつかった：逆向きへ
+            }
+        }
+        if (e.bossTimer <= 0.0f && e.sees) {
+            EnterBossState(e, BossState::Telegraph);
+        }
+        break;
+    }
+
+    case BossState::Telegraph:
+        // 構え：立ち止まり、線で予告する。撃つ直前（kAimLockTime）に向きが固定される（横へ動けば避けられる）
+        if (!e.aimLocked) {
+            e.aimDir = dirToPlayer;
+            if (e.bossTimer <= kAimLockTime) {
+                e.aimLocked = true;
+            }
+        }
+        if (e.bossTimer <= 0.0f) {
+            EnterBossState(e, BossState::Fire);
+        }
+        break;
+
+    case BossState::Fire:
+        e.fireTimer -= dt;
+        if (e.bossAttack == BossAttack::Fan) {
+            // 扇：固定した向きを中心に、まとめて1回
+            const int n = enraged ? kBossFanCount + 2 : kBossFanCount;
+            for (int i = 0; i < n; ++i) {
+                const float angle = (static_cast<float>(i) - static_cast<float>(n - 1) * 0.5f) * kBossFanSpread;
+                const float c = std::cos(angle);
+                const float sn = std::sin(angle);
+                FireBossBullet(e.pos, { e.aimDir.x * c - e.aimDir.y * sn, e.aimDir.x * sn + e.aimDir.y * c });
+            }
+            fx_.Shake(0.12f, 0.12f);
+            e.shotsLeft = 0;
+        }
+        else if (e.fireTimer <= 0.0f && e.shotsLeft > 0) {
+            // まっすぐ連射：固定した向きへ、間をあけて何発も
+            FireBossBullet(e.pos, e.aimDir);
+            --e.shotsLeft;
+            e.fireTimer = kBossBurstInterval;
+        }
+        if (e.shotsLeft <= 0) {
+            EnterBossState(e, BossState::Recover);
+        }
+        break;
+
+    case BossState::Recover:
+        // 隙：動かない。ここで当てると2倍のダメージ
+        if (e.bossTimer <= 0.0f) {
+            EnterBossState(e, BossState::Pace);
+        }
+        break;
+    }
 }

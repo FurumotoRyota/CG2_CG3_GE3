@@ -1,4 +1,5 @@
 ﻿#include "StartupScene.h"
+#include "SakuraStorm.h"
 #include "TitleScene.h"
 #include "scene/SceneManager.h"
 #include "base/WinApp.h"
@@ -8,7 +9,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 
 #ifdef USE_IMGUI
 #include "imgui/imgui.h"
@@ -18,32 +18,147 @@ namespace
 {
     constexpr float kScreenW = static_cast<float>(WinApp::kGameWidth);
     constexpr float kScreenH = static_cast<float>(WinApp::kGameHeight);
+    constexpr float kDt = 1.0f / 60.0f;
 
-    // 文字の画像（resources/startup_ds_glyphs.png）の作り。1文字ぶんの大きさと、並んでいる文字の順番
-    constexpr float kCellW = 104.0f;
-    constexpr float kCellH = 150.0f;
-    constexpr const char* kCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.";
-    constexpr int kCharsetCount = 37;
+    // --- 墨の画像（rei_ink.png）：1コマ 400x400 を 10列 x 9行 に並べてある（全90コマ） ---
+    constexpr float kInkCell = 400.0f;
+    constexpr int kInkColumns = 10;
+    constexpr int kInkFrames = 90;
+    constexpr float kInkFps = 30.0f;     // 1秒に何コマ進めるか（書く速さ。小さいほどゆっくり）
 
-    // 文字を並べる間隔と、縦の位置（文字の中心）
-    constexpr float kReadoutStep = 96.0f;
-    constexpr float kReadoutScale = 1.5f;
-    constexpr float kReadoutY = 330.0f;
-    constexpr float kTitleStep = 72.0f;
-    constexpr float kTitleScale = 1.1f;  // 名前の文字の大きさ
-    constexpr float kTitleY = 320.0f;
-    constexpr float kSubStep = 44.0f;   // 下の小さな文字
-    constexpr float kSubScale = 0.7f;
-    constexpr float kSubY = 478.0f;
+    // --- 画面の中の置き場所（1280x720 の画面での、左上の座標と大きさ） ---
+    constexpr float kInkX = 380.0f, kInkY = -10.0f, kInkSize = 520.0f;
+    constexpr float kNameX = 190.0f, kNameY = 490.0f;                      // 画像は 900x200
 
-    // 稲妻の画像（resources/startup_bolts.png）：1024x200 の絵が8枚、縦に並んでいる
-    constexpr float kBoltW = 1024.0f;
-    constexpr float kBoltH = 200.0f;
-    constexpr int kBoltVariants = 8;
-    constexpr float kPi = 3.14159265f;
+    // --- 時間割（秒） ---
+    constexpr float kInkStart = 0.6f;                                      // 書き始め
+    constexpr int kSettleFrames = 6;                                       // 墨のコマの最後の、書き終わったあとの落ち着き（render の SETTLE と同じ）
+    constexpr float kPullStart = kInkStart + (kInkFrames - kSettleFrames) / kInkFps;   // カメラが引き始める（最後の画を書き終えたとき）
+    constexpr float kPullTime = 0.9f;                                      // 引くのにかかる時間
+    constexpr float kNameStart = kPullStart + kPullTime + 0.1f;            // 名前が浮かぶ（全体が見えてから）
+    constexpr float kNameFade = 0.6f;
+    constexpr float kStormStart = kNameStart + kNameFade + 0.7f;           // 桜吹雪が吹き始める
+    constexpr float kStormTime = 2.4f;                                     // 吹き荒れて画面を覆い、暗転するまで（タイトルへ進むのは、暗転しきったとき）
+    constexpr float kStormPeakRate = 240.0f;                               // 吹き込む枚数のピーク（1秒あたり）
+    constexpr float kStormMaxSize = 3.2f;                                  // 画面を覆うころの、花びらの大きさの倍率
+    constexpr float kGiantPeakRate = 130.0f;                               // 手前を横切る巨大な花びらのピーク（1秒あたり。これで画面を覆いつくす）
+    constexpr float kHazeMax = 0.9f;                                       // 花びらのすきまを埋める桜色の霞の濃さ（0〜1）
+    constexpr float kBlackStart = 0.8f;                                    // 暗転を始める時刻（kStormTime に対する割合。画面が桜色に覆いつくされてから）
+    constexpr float kFadeInTime = 0.5f;
 
-    float Clamp01(float v) { return (std::max)(0.0f, (std::min)(1.0f, v)); }
-    float Smooth(float v) { v = Clamp01(v); return v * v * (3.0f - 2.0f * v); } // ゆっくり始まりゆっくり終わる
+    // --- 画面の揺れ：強く筆を入れる所・止める所で、ドンと揺らす ---
+    //   frame は墨のコマ番号（書くときに強い画の入りと止め）、amp は揺れの大きさ（ピクセル）
+    struct Impact { int frame; float amp; };
+    constexpr Impact kImpacts[] = {
+        { 13, 8.0f },
+        { 24, 5.0f },
+        { 45, 6.0f },
+        { 68, 8.0f },
+        { 74, 6.0f },
+        { 78, 5.0f },
+        { 83, 6.0f }
+    };
+    // --- カメラ：書いている間は筆先に寄って追いかけ、書き終わったら引いて全体を見せる ---
+    constexpr float kCamZoom = 1.55f;      // 書いている間の拡大率（1.0 が全体。大きいほど寄る）
+    constexpr float kCamFollow = 5.0f;     // 筆先を追う速さ（大きいほど素早く追う）
+    constexpr float kCamFollowPull = 14.0f; // 引くときは、ぴったり中心に収まるよう追う速さを上げる
+    constexpr float kViewCenterX = kScreenW * 0.5f;
+    constexpr float kViewCenterY = kScreenH * 0.5f;
+    // 墨の各コマ（30コマ/秒）の筆先の位置。墨の画像の範囲を 0..1 にした値（x, y）。render の書き出しで作ったもの
+    constexpr float kTips[kInkFrames][2] = {
+        { 0.1139f, 0.2334f },
+        { 0.1113f, 0.2465f },
+        { 0.0997f, 0.3084f },
+        { 0.0804f, 0.3737f },
+        { 0.0578f, 0.4390f },
+        { 0.1287f, 0.3616f },
+        { 0.1996f, 0.2843f },
+        { 0.2841f, 0.2118f },
+        { 0.3253f, 0.2341f },
+        { 0.3442f, 0.2925f },
+        { 0.3355f, 0.3149f },
+        { 0.2743f, 0.1943f },
+        { 0.2131f, 0.0851f },
+        { 0.2132f, 0.0963f },
+        { 0.2132f, 0.1158f },
+        { 0.2131f, 0.1938f },
+        { 0.2126f, 0.2943f },
+        { 0.2119f, 0.3959f },
+        { 0.2116f, 0.4964f },
+        { 0.2112f, 0.5980f },
+        { 0.2111f, 0.6985f },
+        { 0.2109f, 0.7786f },
+        { 0.2106f, 0.8227f },
+        { 0.2105f, 0.8565f },
+        { 0.2107f, 0.8832f },
+        { 0.2922f, 0.6834f },
+        { 0.3738f, 0.4836f },
+        { 0.4553f, 0.2838f },
+        { 0.5323f, 0.0921f },
+        { 0.5273f, 0.1010f },
+        { 0.5178f, 0.1181f },
+        { 0.4951f, 0.1550f },
+        { 0.4697f, 0.1899f },
+        { 0.4427f, 0.2237f },
+        { 0.4153f, 0.2571f },
+        { 0.3688f, 0.3148f },
+        { 0.2584f, 0.4295f },
+        { 0.4181f, 0.2762f },
+        { 0.6010f, 0.1643f },
+        { 0.6266f, 0.2040f },
+        { 0.6612f, 0.2376f },
+        { 0.7269f, 0.2868f },
+        { 0.8075f, 0.3220f },
+        { 0.8293f, 0.3272f },
+        { 0.8506f, 0.3293f },
+        { 0.8754f, 0.3314f },
+        { 0.7940f, 0.3282f },
+        { 0.7126f, 0.3249f },
+        { 0.6473f, 0.3317f },
+        { 0.6710f, 0.3556f },
+        { 0.7098f, 0.3821f },
+        { 0.5604f, 0.3888f },
+        { 0.4221f, 0.3944f },
+        { 0.4715f, 0.3937f },
+        { 0.5569f, 0.3918f },
+        { 0.6412f, 0.3869f },
+        { 0.6946f, 0.3839f },
+        { 0.7152f, 0.3831f },
+        { 0.6168f, 0.4159f },
+        { 0.5184f, 0.4487f },
+        { 0.4201f, 0.4815f },
+        { 0.3525f, 0.5139f },
+        { 0.4038f, 0.5129f },
+        { 0.4971f, 0.5108f },
+        { 0.5914f, 0.5072f },
+        { 0.6849f, 0.5062f },
+        { 0.7405f, 0.5156f },
+        { 0.7549f, 0.5510f },
+        { 0.7536f, 0.5975f },
+        { 0.7506f, 0.6650f },
+        { 0.7467f, 0.7328f },
+        { 0.7273f, 0.7969f },
+        { 0.6844f, 0.8280f },
+        { 0.6424f, 0.7906f },
+        { 0.6090f, 0.7379f },
+        { 0.5754f, 0.6702f },
+        { 0.5418f, 0.6025f },
+        { 0.5077f, 0.5431f },
+        { 0.5075f, 0.5749f },
+        { 0.5062f, 0.6551f },
+        { 0.5061f, 0.7362f },
+        { 0.5069f, 0.8174f },
+        { 0.5077f, 0.8616f },
+        { 0.5075f, 0.8852f },
+        { 0.5075f, 0.8852f },
+        { 0.5075f, 0.8852f },
+        { 0.5075f, 0.8852f },
+        { 0.5075f, 0.8852f },
+        { 0.5075f, 0.8852f },
+        { 0.5075f, 0.8852f }
+    };
+
+    constexpr float kShakeLife = 0.18f;    // 1回の揺れが続く時間（秒）
 
     void SetTint(Sprite& sprite, float r, float g, float b, float alpha)
     {
@@ -58,413 +173,147 @@ namespace
     }
 }
 
-int StartupScene::GlyphIndex(char c)
-{
-    const char* p = (c == '\0') ? nullptr : std::strchr(kCharset, c);
-    return p ? static_cast<int>(p - kCharset) : -1;
-}
-
-void StartupScene::ShowGlyph(Sprite& sprite, int glyph, float cx, float cy, float scale, float brightness, float alpha, float r, float g, float b)
-{
-    sprite.SetTextureRect({ glyph * kCellW, 0.0f }, { kCellW, kCellH });
-    Transform& tr = sprite.GetTransform();
-    tr.Scale = { scale, scale, 1.0f };
-    tr.Translate = { cx - kCellW * scale * 0.5f, cy - kCellH * scale * 0.5f, 0.0f };
-    SetTint(sprite, brightness * r, brightness * g, brightness * b, alpha);
-    sprite.Update();
-}
-
-void StartupScene::SpawnBolt(float x, float y, float angle, float length, float thick, int life)
-{
-    // 空いている枠を探す（なければいちばん古いものを使う）
-    int slot = 0;
-    for (int i = 0; i < kBoltCount; ++i) {
-        if (bolts_[i].life <= 0) { slot = i; break; }
-        if (bolts_[i].life < bolts_[slot].life) { slot = i; }
-    }
-    Bolt& b = bolts_[slot];
-    b.x = x; b.y = y; b.angle = angle; b.length = length; b.thick = thick;
-    b.life = life; b.maxLife = life;
-}
-
-void StartupScene::UpdateBolts()
-{
-    for (int i = 0; i < kBoltCount; ++i) {
-        Bolt& b = bolts_[i];
-        if (b.life <= 0) {
-            continue;
-        }
-        // 2フレームごとに形を引き直す（バチバチ感）。形は8種類
-        if ((b.maxLife - b.life) % 2 == 0) {
-            b.variant = static_cast<int>(rng_() % kBoltVariants);
-        }
-        const float fade = static_cast<float>(b.life) / static_cast<float>(b.maxLife);
-        std::uniform_real_distribution<float> flick(0.5f, 1.0f);
-        const float bright = fade * flick(rng_) * screenAlpha_;
-
-        b.sprite->SetTextureRect({ 0.0f, b.variant * kBoltH }, { kBoltW, kBoltH });
-        const float sx = b.length / kBoltW;
-        const float sy = b.thick;
-        Transform& tr = b.sprite->GetTransform();
-        tr.Scale = { sx, sy, 1.0f };
-        tr.Rotate = { 0.0f, 0.0f, b.angle };
-        // 稲妻の始点は画像の左端中央(0, 100)。そこが(x, y)に来るように位置をずらす
-        const float oy = kBoltH * 0.5f * sy;
-        tr.Translate = { b.x + std::sin(b.angle) * oy, b.y - std::cos(b.angle) * oy, 0.0f };
-        SetTint(*b.sprite, 0.75f * bright, 0.9f * bright, 1.0f * bright, 1.0f);
-        b.sprite->Update();
-        --b.life;
-    }
-}
-
 void StartupScene::Initialize()
 {
     SpriteCommon* common = ctx_->spriteCommon;
-
-    background_ = MakeSprite(common, "resources/startup_ds_bg.png", kScreenW, kScreenH);
-    scan_ = MakeSprite(common, "resources/startup_scan.png", kScreenW, kScreenH);
-
-    // 光る文字は加算で重ねる
-    for (int i = 0; i < kReadoutLength; ++i) {
-        readout_[i] = MakeSprite(common, "resources/startup_ds_glyphs.png", kCellW, kCellH);
-        readout_[i]->SetBlendMode(BlendMode::Add);
-        shownReadout_[i] = -1;
-    }
-    for (int i = 0; i < kTitleLength; ++i) {
-        title_[i] = MakeSprite(common, "resources/startup_ds_glyphs.png", kCellW, kCellH);
-        title_[i]->SetBlendMode(BlendMode::Add);
-        shownTitle_[i] = -1;
-        randomGlyph_[i] = 0;
-    }
-
-    for (int i = 0; i < kSubLength; ++i) {
-        sub_[i] = MakeSprite(common, "resources/startup_ds_glyphs.png", kCellW, kCellH);
-        sub_[i]->SetBlendMode(BlendMode::Add);
-        shownSub_[i] = -1;
-        randomSub_[i] = 0;
-    }
-    underline_ = MakeSprite(common, "resources/startup_white.png", 8.0f, 8.0f);
-    underline_->SetBlendMode(BlendMode::Add);
-    bars_.clear();
-    for (int i = 0; i < 3; ++i) {
-        auto bar = MakeSprite(common, "resources/startup_white.png", 8.0f, 8.0f);
-        bar->SetBlendMode(BlendMode::Add);
-        bars_.push_back(std::move(bar));
-    }
-    flash_ = MakeSprite(common, "resources/startup_white.png", 8.0f, 8.0f);
-    flash_->GetTransform().Scale = { kScreenW / 8.0f, kScreenH / 8.0f, 1.0f };
-    flash_->GetTransform().Translate = { 0.0f, 0.0f, 0.0f };
-
-    noise_ = MakeSprite(common, "resources/startup_noise.png", kScreenW, kScreenH);
-    noise_->SetBlendMode(BlendMode::Add);
-    band_ = MakeSprite(common, "resources/startup_white.png", 8.0f, 8.0f);
-    band_->SetBlendMode(BlendMode::Add);
-    bandLine_ = MakeSprite(common, "resources/startup_white.png", 8.0f, 8.0f);
-    bandLine_->SetBlendMode(BlendMode::Add);
-    intro_ = MakeSprite(common, "resources/startup_white.png", 8.0f, 8.0f);
-    intro_->SetBlendMode(BlendMode::Add);
-    for (int i = 0; i < kTitleLength; ++i) {
-        ghostR_[i] = MakeSprite(common, "resources/startup_ds_glyphs.png", kCellW, kCellH);
-        ghostR_[i]->SetBlendMode(BlendMode::Add);
-        ghostB_[i] = MakeSprite(common, "resources/startup_ds_glyphs.png", kCellW, kCellH);
-        ghostB_[i]->SetBlendMode(BlendMode::Add);
-        ghostOn_[i] = false;
-    }
-
-    for (int i = 0; i < kBoltCount; ++i) {
-        bolts_[i].sprite = MakeSprite(common, "resources/startup_bolts.png", kBoltW, kBoltH);
-        bolts_[i].sprite->SetBlendMode(BlendMode::Add);
-        bolts_[i].life = 0;
-    }
-
+    paper_ = MakeSprite(common, "resources/rei_paper.png", kScreenW, kScreenH);
+    ink_ = MakeSprite(common, "resources/rei_ink.png", kInkCell, kInkCell);
+    name_ = MakeSprite(common, "resources/rei_name.png", 900.0f, 200.0f);
+    fade_ = MakeSprite(common, "resources/startup_white.png", 8.0f, 8.0f);
+    fade_->GetTransform().Scale = { kScreenW / 8.0f, kScreenH / 8.0f, 1.0f };
+    fade_->GetTransform().Translate = { 0.0f, 0.0f, 0.0f };
+    wash_ = MakeSprite(common, "resources/startup_white.png", 8.0f, 8.0f);
+    wash_->GetTransform().Scale = { kScreenW / 8.0f, kScreenH / 8.0f, 1.0f };
+    wash_->GetTransform().Translate = { 0.0f, 0.0f, 0.0f };
+    storm_ = std::make_unique<SakuraStorm>();
+    storm_->Initialize(common);
     time_ = 0.0f;
-    frameCount_ = 0;
+    leaving_ = false;
+    camInit_ = false;
 }
 
 void StartupScene::Update()
 {
-    time_ += 1.0f / 60.0f;
-    ++frameCount_;
+    time_ += kDt;
     const float t = time_;
-    std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
 
-    // 全体の明るさ（最後に暗く消える）
-    screenAlpha_ = 1.0f - Smooth((t - kFadeOutStart) / kFadeOut);
-
-    background_->GetTransform().Translate = { 0.0f, 0.0f, 0.0f };
-    SetTint(*background_, screenAlpha_, screenAlpha_, screenAlpha_, 1.0f);
-    background_->Update();
-    scan_->GetTransform().Translate = { 0.0f, 0.0f, 0.0f };
-    SetTint(*scan_, 1.0f, 1.0f, 1.0f, 0.3f * screenAlpha_); // 走査線は薄めにして、暗くなりすぎないようにする
-    scan_->Update();
-
-    float glitch = 0.0f; // 画面の乱れの強さ（0～1）。ゆれ・横線・フラッシュに使う
-    for (int i = 0; i < kTitleLength; ++i) {
-        ghostOn_[i] = false;
-    }
-
-    // ============ 前半：数字 ============
-    for (int i = 0; i < kReadoutLength; ++i) {
-        shownReadout_[i] = -1;
-    }
-    if (t < kReadoutEnd) {
-        const float flux = Clamp01((t - kFluxStart) / (kReadoutEnd - kFluxStart)); // 最後に向けて強くなる
-        glitch = flux;
-        const float jitter = flux * flux * 10.0f;
-        const float jx = unit(rng_) * jitter;
-        const float jy = unit(rng_) * jitter * 0.5f;
-        const float warm = Smooth((t - 0.2f) / kReadoutWarm);
-
-        const float totalW = kReadoutStep * kReadoutLength;
-        int order = 0;
-        for (int i = 0; i < kReadoutLength; ++i) {
-            const char c = kReadoutText[i];
-            int shown = -1;
-            if (c == '.') {
-                shown = (t >= 0.3f) ? GlyphIndex('.') : -1; // 小数点はずっと点いている
-            }
-            else {
-                const float lockTime = kLockStart + order * kLockGap;
-                ++order;
-                // 3フレームに1回、文字ごとにずらして引き直す（高速で切り替わって見える）
-                if (frameCount_ % 3 == i % 3) {
-                    randomGlyph_[i] = 26 + static_cast<int>(rng_() % 10); // 数字だけ（アトラスの26番目以降が0～9）
-                }
-                if (t < kRandomStart) {
-                    shown = -1;
-                }
-                else if (t < lockTime) {
-                    shown = randomGlyph_[i];
-                }
-                else {
-                    shown = GlyphIndex(c);
-                    if (flux > 0.0f && std::abs(unit(rng_)) < flux * 0.7f) {
-                        shown = randomGlyph_[i]; // ゆらぎ：ときどき違う数字がちらつく
-                    }
-                }
-            }
-            shownReadout_[i] = shown;
-            if (shown >= 0) {
-                const float flicker = 0.93f + 0.07f * std::sin(t * 37.0f + i * 1.7f);
-                const float dip = (flux > 0.0f && std::abs(unit(rng_)) < flux * 0.25f) ? 0.45f : 1.0f; // たまに一瞬暗くなる
-                const float cx = (kScreenW - totalW) * 0.5f + (i + 0.5f) * kReadoutStep + jx;
-                ShowGlyph(*readout_[i], shown, cx, kReadoutY + jy, kReadoutScale, warm * flicker * dip * screenAlpha_, 1.0f);
-                // 乱れが強いほど、赤と青の影が左右にずれる（色収差）
-                if (flux > 0.15f) {
-                    const float split = flux * flux * 9.0f;
-                    ShowGlyph(*ghostR_[i], shown, cx + split, kReadoutY + jy, kReadoutScale, 0.55f * warm * dip * screenAlpha_, 1.0f, 1.0f, 0.1f, 0.05f);
-                    ShowGlyph(*ghostB_[i], shown, cx - split, kReadoutY + jy, kReadoutScale, 0.55f * warm * dip * screenAlpha_, 1.0f, 0.1f, 0.5f, 1.0f);
-                    ghostOn_[i] = true;
-                }
-            }
-        }
-    }
-
-    // ============ 後半：名前 ============
-    const float titleTotalW = kTitleStep * kTitleLength;
-    float titleJitterX = 0.0f;
-    float titleJitterY = 0.0f;
-    const bool titlePhase = t >= kTitleStart;
-    // ときどき、短く乱れる（名前が決まったあと）
-    float burst = 0.0f;
-    if (t > kTitleStart + kTitleGap * (kTitleLength - 1) + kScrambleTime + 0.4f && t < kFadeOutStart) {
-        const float phase = std::fmod(t, 1.9f);
-        burst = phase < 0.12f ? 1.0f : 0.0f;
-    }
-    if (burst > 0.0f) {
-        glitch = (std::max)(glitch, 0.5f);
-        titleJitterX = unit(rng_) * 7.0f;
-        titleJitterY = unit(rng_) * 2.0f;
-    }
-    for (int i = 0; i < kTitleLength; ++i) {
-        shownTitle_[i] = -1;
-        const char c = kTitleText[i];
-        if (c == ' ' || !titlePhase) {
-            continue;
-        }
-        const float start = kTitleStart + i * kTitleGap;
-        if (t < start) {
-            continue;
-        }
-        const float lockTime = start + kScrambleTime;
-        int shown = GlyphIndex(c);
-        float flicker = 0.94f + 0.06f * std::sin(t * 31.0f + i * 2.3f);
-        if (t < lockTime) {
-            // 決まる前は、2フレームに1回、でたらめな文字に変わる
-            if (frameCount_ % 2 == i % 2) {
-                randomGlyph_[i] = static_cast<int>(rng_() % kCharsetCount);
-            }
-            shown = randomGlyph_[i];
-            flicker = 0.75f + 0.25f * std::abs(unit(rng_));
-        }
-        else if (burst > 0.0f && std::abs(unit(rng_)) < 0.25f) {
-            shown = static_cast<int>(rng_() % kCharsetCount); // 乱れのとき、数文字だけ一瞬変わる
-        }
-        shownTitle_[i] = shown;
-        const float cx = (kScreenW - titleTotalW) * 0.5f + (i + 0.5f) * kTitleStep + titleJitterX;
-        ShowGlyph(*title_[i], shown, cx, kTitleY + titleJitterY, kTitleScale, flicker * screenAlpha_, 1.0f);
-        // 解読中と乱れのときは、赤と青の影をずらして重ねる
-        {
-            const float split = (burst > 0.0f) ? 6.0f : (t < lockTime ? 2.5f : 0.0f);
-            if (split > 0.0f) {
-                ShowGlyph(*ghostR_[i], shown, cx + split, kTitleY + titleJitterY, kTitleScale, 0.55f * flicker * screenAlpha_, 1.0f, 1.0f, 0.1f, 0.05f);
-                ShowGlyph(*ghostB_[i], shown, cx - split, kTitleY + titleJitterY, kTitleScale, 0.55f * flicker * screenAlpha_, 1.0f, 0.1f, 0.5f, 1.0f);
-                ghostOn_[i] = true;
-            }
-        }
-    }
-
-    // 名前の下の小さな文字：名前と同じように、でたらめな文字から決まっていく
+    // 画面の揺れ（衝撃のたびに、すぐ収まる揺れを足し合わせる）
+    float shakeX = 0.0f;
+    float shakeY = 0.0f;
     {
-        const float subTotalW = kSubStep * kSubLength;
-        for (int i = 0; i < kSubLength; ++i) {
-            shownSub_[i] = -1;
-            const char ch = kSubText[i];
-            const float start = kSubStart + i * kSubGap;
-            if (ch == ' ' || t < start) {
-                continue;
+        auto addShake = [&](float impactTime, float amp, int seed) {
+            const float u = (t - impactTime) / kShakeLife;
+            if (u >= 0.0f && u < 1.0f) {
+                const float d = (1.0f - u) * (1.0f - u) * amp;
+                shakeX += std::sin(t * 131.0f + seed * 1.7f) * d;
+                shakeY += std::cos(t * 113.0f + seed * 2.3f) * d * 0.8f;
             }
-            int shown = GlyphIndex(ch);
-            float flicker = 0.94f + 0.06f * std::sin(t * 29.0f + i * 1.9f);
-            if (t < start + kSubScramble) {
-                if (frameCount_ % 2 == i % 2) {
-                    randomSub_[i] = static_cast<int>(rng_() % kCharsetCount);
-                }
-                shown = randomSub_[i];
-                flicker = 0.75f + 0.25f * std::abs(unit(rng_));
-            }
-            shownSub_[i] = shown;
-            const float cx = (kScreenW - subTotalW) * 0.5f + (i + 0.5f) * kSubStep + titleJitterX;
-            ShowGlyph(*sub_[i], shown, cx, kSubY + titleJitterY, kSubScale, flicker * screenAlpha_, 1.0f);
+        };
+        int seed = 0;
+        for (const Impact& im : kImpacts) {
+            addShake(kInkStart + im.frame / kInkFps, im.amp, seed++);
         }
     }
 
-    // 名前の下の線：文字が決まったあとに、真ん中から左右へ伸びる
+    const float tau = (t - kInkStart) * kInkFps;           // 墨のコマ数で数えた時間
+
+    // --- カメラ ---
     {
-        const float u = Smooth((t - kLineStart) / kLineTime);
-        const float w = (kTitleStep * (kTitleLength - 1)) * u;
-        Transform& tr = underline_->GetTransform();
-        tr.Scale = { (std::max)(w, 0.01f) / 8.0f, 3.0f / 8.0f, 1.0f };
-        tr.Translate = { (kScreenW - w) * 0.5f, kTitleY + 92.0f, 0.0f };
-        SetTint(*underline_, 1.0f, 0.55f, 0.2f, 0.8f * u * screenAlpha_);
-        underline_->Update();
+        // いま筆先がある位置（コマとコマの間はなめらかにつなぐ）
+        const float tf = std::clamp(tau, 0.0f, static_cast<float>(kInkFrames - 1));
+        const int c0 = static_cast<int>(std::floor(tf));
+        const int c1 = (std::min)(c0 + 1, kInkFrames - 1);
+        const float cu = tf - static_cast<float>(c0);
+        const float tipX = kInkX + (kTips[c0][0] + (kTips[c1][0] - kTips[c0][0]) * cu) * kInkSize;
+        const float tipY = kInkY + (kTips[c0][1] + (kTips[c1][1] - kTips[c0][1]) * cu) * kInkSize;
+
+        // 書き終わったら、全体が見える位置・大きさへ引く
+        const float pull = std::clamp((t - kPullStart) / kPullTime, 0.0f, 1.0f);
+        const float w = pull * pull * (3.0f - 2.0f * pull);
+        const float targetZ = kCamZoom + (1.0f - kCamZoom) * w;
+        const float targetX = tipX + (kViewCenterX - tipX) * w;
+        const float targetY = tipY + (kViewCenterY - tipY) * w;
+
+        if (!camInit_) {
+            camX_ = targetX;
+            camY_ = targetY;
+            camInit_ = true;
+        }
+        else {
+            const float follow = kCamFollow + (kCamFollowPull - kCamFollow) * w;
+            const float k = 1.0f - std::exp(-follow * kDt);
+            camX_ += (targetX - camX_) * k;
+            camY_ += (targetY - camY_) * k;
+        }
+        camZ_ = targetZ;
+        // 和紙の外が映らないように、カメラの中心を和紙の範囲の中に収める（和紙は画面より 4% 大きい）
+        const float halfW = kScreenW * 0.5f / camZ_;
+        const float halfH = kScreenH * 0.5f / camZ_;
+        camX_ = std::clamp(camX_, -kScreenW * 0.02f + halfW, kScreenW * 1.02f - halfW);
+        camY_ = std::clamp(camY_, -kScreenH * 0.02f + halfH, kScreenH * 1.02f - halfH);
     }
+    // 画面の座標（拡大前）にあるものを、カメラ越しの位置・大きさにして貼る
+    auto place = [&](Sprite& sprite, float baseX, float baseY, float baseScale) {
+        sprite.GetTransform().Scale = { baseScale * camZ_, baseScale * camZ_, 1.0f };
+        sprite.GetTransform().Translate = { (baseX - camX_) * camZ_ + kViewCenterX + shakeX, (baseY - camY_) * camZ_ + kViewCenterY + shakeY, 0.0f };
+    };
 
-    // 乱れの横線
-    for (size_t i = 0; i < bars_.size(); ++i) {
-        const bool on = glitch > 0.0f && std::abs(unit(rng_)) < glitch * 0.5f;
-        Transform& tr = bars_[i]->GetTransform();
-        tr.Scale = { kScreenW / 8.0f, (2.0f + 4.0f * std::abs(unit(rng_))) / 8.0f, 1.0f };
-        tr.Translate = { 0.0f, (unit(rng_) * 0.5f + 0.5f) * kScreenH, 0.0f };
-        SetTint(*bars_[i], 1.0f, 0.6f, 0.3f, on ? 0.3f * glitch : 0.0f);
-        bars_[i]->Update();
+    // 和紙（揺れても端が見えないよう、少し大きくして中心を合わせる）
+    place(*paper_, -kScreenW * 0.02f, -kScreenH * 0.02f, 1.04f);
+    SetTint(*paper_, 1.0f, 1.0f, 1.0f, 1.0f);
+    paper_->Update();
+
+    // 墨：時間に合わせてコマを進める（書き終わったら最後のコマのまま）
+    const bool inkShown = tau >= 0.0f;
+    const int frame = std::clamp(static_cast<int>(std::floor(tau)), 0, kInkFrames - 1);
+    const float inkScale = kInkSize / kInkCell;
+    ink_->SetTextureRect({ (frame % kInkColumns) * kInkCell, (frame / kInkColumns) * kInkCell }, { kInkCell, kInkCell });
+    place(*ink_, kInkX, kInkY, inkScale);
+    SetTint(*ink_, 1.0f, 1.0f, 1.0f, inkShown ? 1.0f : 0.0f);
+    ink_->Update();
+
+    // 名前：すっと浮かぶ
+    const float nameA = std::clamp((t - kNameStart) / kNameFade, 0.0f, 1.0f);
+    place(*name_, kNameX, kNameY + 8.0f * (1.0f - nameA), 1.0f);
+    SetTint(*name_, 1.0f, 1.0f, 1.0f, nameA);
+    name_->Update();
+
+    // 桜吹雪：吹き込む枚数と花びらの大きさを増やして、画面を覆いつくす。覆ったところで暗転する
+    const float u = std::clamp((t - kStormStart) / kStormTime, 0.0f, 1.0f);
+    const float rampIn = std::clamp(u / 0.5f, 0.0f, 1.0f);
+    const float ramp = rampIn * rampIn * (3.0f - 2.0f * rampIn);
+    storm_->SetEmitRate(u > 0.0f ? kStormPeakRate * ramp : 0.0f);
+    storm_->SetSizeScale(1.0f + (kStormMaxSize - 1.0f) * ramp);
+    const float giantIn = std::clamp((u - 0.15f) / 0.35f, 0.0f, 1.0f);   // 巨大な花びらは早めから増やす
+    storm_->SetGiantRate(kGiantPeakRate * giantIn * giantIn * (3.0f - 2.0f * giantIn));
+    storm_->Update(kDt);
+    // 花びらのすきまを埋める薄い桜色の霞（暗転の前に、画面が桜色に覆われるように）
+    const float hazeT = std::clamp((u - 0.25f) / 0.4f, 0.0f, 1.0f);      // 暗転の前に、桜色の霞で覆いきる
+    SetTint(*wash_, 1.0f, 0.86f, 0.9f, kHazeMax * hazeT * hazeT * (3.0f - 2.0f * hazeT));
+    wash_->Update();
+
+    // 最初は黒からのフェードイン。桜吹雪が覆いつくしたあとは、暗転せずに桜色で画面を満たしてタイトルへ続ける
+    const float fadeIn = 1.0f - std::clamp(t / kFadeInTime, 0.0f, 1.0f);
+    const float pinkT = std::clamp((u - kBlackStart) / (1.0f - kBlackStart), 0.0f, 1.0f);
+    const float pinkA = pinkT * pinkT * (3.0f - 2.0f * pinkT);
+    if (fadeIn > 0.0f) {
+        SetTint(*fade_, 0.0f, 0.0f, 0.0f, fadeIn);
+    } else {
+        SetTint(*fade_, 1.0f, 0.86f, 0.9f, pinkA);
     }
+    fade_->Update();
 
-    // 白いフラッシュ：数字が終わる瞬間と、名前が決まった直後に、一瞬だけ光る
-    {
-        float flashAlpha = 0.0f;
-        if (t >= kReadoutEnd - 0.05f && t < kReadoutEnd + 0.25f) {
-            flashAlpha = 0.7f * (1.0f - Smooth((t - (kReadoutEnd - 0.05f)) / 0.3f));
-        }
-        const float titleDone = kTitleStart + kTitleGap * (kTitleLength - 1) + kScrambleTime;
-        if (t >= titleDone && t < titleDone + 0.2f) {
-            flashAlpha = (std::max)(flashAlpha, 0.35f * (1.0f - Smooth((t - titleDone) / 0.2f)));
-        }
-        SetTint(*flash_, 1.0f, 0.85f, 0.65f, flashAlpha * screenAlpha_);
-        flash_->Update();
-    }
-
-    // ============ 画面ノイズ・走査 ============
-    {
-        // 砂嵐：いつもうっすら、乱れのときは濃く
-        const float base = 0.02f + 0.18f * glitch;
-        noiseAlpha_ = (std::min)(0.2f, base) * screenAlpha_; // 文字が読みにくくならないよう弱め
-        std::uniform_int_distribution<int> ox(0, static_cast<int>(1536 - kScreenW));
-        std::uniform_int_distribution<int> oy(0, static_cast<int>(864 - kScreenH));
-        noise_->SetTextureRect({ static_cast<float>(ox(rng_)), static_cast<float>(oy(rng_)) }, { kScreenW, kScreenH });
-        noise_->GetTransform().Translate = { 0.0f, 0.0f, 0.0f };
-        SetTint(*noise_, 0.8f, 0.9f, 1.0f, noiseAlpha_);
-        noise_->Update();
-
-        // 明るい帯：2.4秒ごとに上から下へゆっくり流れる
-        const float cycle = std::fmod(t, 2.4f) / 2.4f;
-        const float by = -120.0f + cycle * (kScreenH + 240.0f);
-        Transform& bt = band_->GetTransform();
-        bt.Scale = { kScreenW / 8.0f, 110.0f / 8.0f, 1.0f };
-        bt.Translate = { 0.0f, by, 0.0f };
-        SetTint(*band_, 0.7f, 0.85f, 1.0f, 0.02f * screenAlpha_);
-        band_->Update();
-        Transform& lt = bandLine_->GetTransform();
-        lt.Scale = { kScreenW / 8.0f, 2.0f / 8.0f, 1.0f };
-        lt.Translate = { 0.0f, by + 110.0f, 0.0f };
-        SetTint(*bandLine_, 0.7f, 0.85f, 1.0f, 0.035f * screenAlpha_);
-        bandLine_->Update();
-
-        // 起動直後：中央に光の線が現れて、左右に広がり、すぐ消える
-        const float iu = Clamp01(t / 0.35f);
-        const float fade = 1.0f - Smooth((t - 0.35f) / 0.35f);
-        const float iw = kScreenW * Smooth(iu);
-        Transform& it = intro_->GetTransform();
-        it.Scale = { (std::max)(iw, 0.01f) / 8.0f, 2.0f / 8.0f, 1.0f };
-        it.Translate = { (kScreenW - iw) * 0.5f, kScreenH * 0.5f, 0.0f };
-        SetTint(*intro_, 0.8f, 0.9f, 1.0f, (t < 0.7f ? 0.9f * fade : 0.0f) * screenAlpha_);
-        intro_->Update();
-    }
-
-    // ============ 電気のビリビリ ============
-    {
-        const float prev = t - 1.0f / 60.0f;
-        auto crossed = [&](float when) { return prev < when && t >= when; };
-        std::uniform_real_distribution<float> ang(0.0f, 2.0f * kPi);
-        std::uniform_real_distribution<float> rx(0.0f, kScreenW);
-        std::uniform_real_distribution<float> ry(kReadoutY - 90.0f, kReadoutY + 90.0f);
-        const float readoutW = kReadoutStep * kReadoutLength;
-
-        // 数字が1本決まるたびに、その数字から小さな放電
-        int order = 0;
-        for (int i = 0; i < kReadoutLength; ++i) {
-            if (kReadoutText[i] == '.') { continue; }
-            if (crossed(kLockStart + order * kLockGap)) {
-                const float cx = (kScreenW - readoutW) * 0.5f + (i + 0.5f) * kReadoutStep;
-                SpawnBolt(cx, kReadoutY, ang(rng_), 220.0f + 160.0f * std::abs(unit(rng_)), 0.5f, 6);
-            }
-            ++order;
-        }
-        // ゆらぎの間は、乱れが強いほど頻繁にバチッとなる
-        if (t >= kFluxStart && t < kReadoutEnd) {
-            const float flux = Clamp01((t - kFluxStart) / (kReadoutEnd - kFluxStart));
-            if (std::abs(unit(rng_)) < 0.1f + flux * 0.5f) {
-                SpawnBolt(rx(rng_), ry(rng_), ang(rng_), 250.0f + 300.0f * std::abs(unit(rng_)), 0.5f + 0.5f * flux, 5);
-            }
-        }
-        // 数字が終わる瞬間：画面いっぱいの大きな放電
-        if (crossed(kReadoutEnd - 0.05f)) {
-            for (int k = 0; k < 6; ++k) {
-                SpawnBolt(rx(rng_), kReadoutY + unit(rng_) * 60.0f, ang(rng_), 600.0f + 450.0f * std::abs(unit(rng_)), 1.1f, 12);
-            }
-        }
-        // 名前が決まった瞬間：左右へ走る放電
-        const float titleDone = kTitleStart + kTitleGap * (kTitleLength - 1) + kScrambleTime;
-        if (crossed(titleDone)) {
-            const float left = (kScreenW - titleTotalW) * 0.5f;
-            SpawnBolt(left, kTitleY, kPi, 420.0f, 1.0f, 10);
-            SpawnBolt(left + titleTotalW, kTitleY, 0.0f, 420.0f, 1.0f, 10);
-            for (int k = 0; k < 3; ++k) {
-                SpawnBolt(left + titleTotalW * (0.2f + 0.3f * k), kTitleY, ang(rng_), 300.0f, 0.7f, 8);
-            }
-        }
-        // 名前の乱れ（バースト）の始まりでバチッ
-        if (burst > 0.0f && std::fmod(prev, 1.9f) >= 0.12f) {
-            SpawnBolt(rx(rng_), kTitleY + unit(rng_) * 40.0f, ang(rng_), 300.0f + 200.0f * std::abs(unit(rng_)), 0.6f, 5);
-            SpawnBolt(rx(rng_), kTitleY + unit(rng_) * 40.0f, ang(rng_), 300.0f + 200.0f * std::abs(unit(rng_)), 0.6f, 5);
-        }
-        UpdateBolts();
-    }
-
-    // Enter / Space / Esc / ゲームパッドAボタンでスキップ、または最後まで見たらタイトルへ
+    // Enter / Space / Esc / クリック / ゲームパッドAでスキップ、または最後まで見たらタイトルへ
+    bool click = false;
+#ifdef USE_IMGUI
+    click = EditorLayout::GetViewportInput().clicked;
+#endif // USE_IMGUI
     Input& input = *ctx_->input;
-    const bool skip = input.TriggerKey(DIK_RETURN) || input.TriggerKey(DIK_SPACE) || input.TriggerKey(DIK_ESCAPE) || input.TriggerGamepadButton(0);
-    if (skip || t >= kFadeOutStart + kFadeOut) {
+    const bool skip = input.TriggerKey(DIK_RETURN) || input.TriggerKey(DIK_SPACE) || input.TriggerKey(DIK_ESCAPE)
+        || input.TriggerGamepadButton(0) || click;
+    if (!leaving_ && (skip || t >= kStormStart + kStormTime)) {
+        leaving_ = true;
+        TitleScene::s_fromStartup = true; // タイトルは桜色から明るくなる
         ctx_->sceneManager->ChangeScene<TitleScene>();
     }
 }
@@ -472,85 +321,34 @@ void StartupScene::Update()
 void StartupScene::Draw()
 {
     ctx_->spriteCommon->PreDraw();
-    background_->Draw();
-    if (time_ < 0.7f) {
-        intro_->Draw();
-    }
-    noise_->Draw(); // 文字の後ろに敷く
-    band_->Draw();
-    bandLine_->Draw();
-    for (int i = 0; i < kTitleLength; ++i) {
-        if (ghostOn_[i]) {
-            ghostR_[i]->Draw();
-            ghostB_[i]->Draw();
-        }
-    }
-    for (int i = 0; i < kReadoutLength; ++i) {
-        if (shownReadout_[i] >= 0) {
-            readout_[i]->Draw();
-        }
-    }
-    for (int i = 0; i < kTitleLength; ++i) {
-        if (shownTitle_[i] >= 0) {
-            title_[i]->Draw();
-        }
-    }
-    for (int i = 0; i < kSubLength; ++i) {
-        if (shownSub_[i] >= 0) {
-            sub_[i]->Draw();
-        }
-    }
-    if (time_ >= kLineStart) {
-        underline_->Draw();
-    }
-    for (int i = 0; i < kBoltCount; ++i) {
-        if (bolts_[i].life > 0) {
-            bolts_[i].sprite->Draw();
-        }
-    }
-    for (auto& bar : bars_) {
-        bar->Draw();
-    }
-    flash_->Draw();
-    scan_->Draw();
+    paper_->Draw();
+    ink_->Draw();
+    name_->Draw();
+    wash_->Draw();
+    storm_->Draw();
+    fade_->Draw();
 }
 
 void StartupScene::DrawImGui()
 {
 #ifdef USE_IMGUI
     EditorLayout::Begin("ヒエラルキー", EditorLayout::Panel::Hierarchy);
-    ImGui::Text("シーン: スタートアップ（Divergence Engine）");
+    ImGui::Text("Scene: Startup (Rei Engine)");
     ImGui::Separator();
-    ImGui::Text("Enter / Space / Esc / ゲームパッドA でスキップ");
+    ImGui::Text("Enter / Space / Esc / Click / Pad A: skip");
     ImGui::End();
 #endif // USE_IMGUI
 }
 
 void StartupScene::Finalize()
 {
-    background_.reset();
-    scan_.reset();
-    for (int i = 0; i < kReadoutLength; ++i) {
-        readout_[i].reset();
+    paper_.reset();
+    ink_.reset();
+    name_.reset();
+    wash_.reset();
+    if (storm_) {
+        storm_->Finalize();
+        storm_.reset();
     }
-    for (int i = 0; i < kTitleLength; ++i) {
-        title_[i].reset();
-    }
-    for (int i = 0; i < kSubLength; ++i) {
-        sub_[i].reset();
-    }
-    underline_.reset();
-    bars_.clear();
-    flash_.reset();
-    noise_.reset();
-    band_.reset();
-    bandLine_.reset();
-    intro_.reset();
-    for (int i = 0; i < kTitleLength; ++i) {
-        ghostR_[i].reset();
-        ghostB_[i].reset();
-    }
-    for (int i = 0; i < kBoltCount; ++i) {
-        bolts_[i].sprite.reset();
-    }
+    fade_.reset();
 }

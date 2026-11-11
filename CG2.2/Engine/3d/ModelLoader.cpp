@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 
 #include "../base/StringUtility.h"
@@ -249,8 +250,117 @@ Node ReadNode(const aiNode* node)
     return result;
 }
 
+// ノードを全部たどって、骨の階層（親が先）に並べる
+void FlattenJoints(const aiNode* node, int parent, SkinData& skin, std::unordered_map<std::string, int>& index)
+{
+    SkinJoint joint;
+    joint.name = node->mName.C_Str();
+    joint.parent = parent;
+    aiVector3D scale, position;
+    aiQuaternion rotation;
+    node->mTransformation.Decompose(scale, rotation, position);
+    joint.bindScale = { scale.x, scale.y, scale.z };
+    joint.bindRot[0] = rotation.x;
+    joint.bindRot[1] = rotation.y;
+    joint.bindRot[2] = rotation.z;
+    joint.bindRot[3] = rotation.w;
+    joint.bindPos = { position.x, position.y, position.z };
+    const int me = static_cast<int>(skin.joints.size());
+    skin.joints.push_back(joint);
+    index[joint.name] = me;
+    for (unsigned i = 0; i < node->mNumChildren; ++i) {
+        FlattenJoints(node->mChildren[i], me, skin, index);
+    }
+}
+
+// アニメーションを読む（キーの時刻は、秒にそろえる）
+void ReadClips(const aiScene* scene, SkinData& skin, const std::unordered_map<std::string, int>& index)
+{
+    for (unsigned a = 0; a < scene->mNumAnimations; ++a) {
+        const aiAnimation* anim = scene->mAnimations[a];
+        const float tps = anim->mTicksPerSecond > 0.0 ? static_cast<float>(anim->mTicksPerSecond) : 25.0f;
+        SkinClip clip;
+        clip.name = anim->mName.C_Str();
+        clip.duration = static_cast<float>(anim->mDuration) / tps;
+        clip.channels.resize(skin.joints.size());
+        for (unsigned c = 0; c < anim->mNumChannels; ++c) {
+            const aiNodeAnim* ch = anim->mChannels[c];
+            auto it = index.find(ch->mNodeName.C_Str());
+            if (it == index.end()) {
+                continue;
+            }
+            SkinChannel& out = clip.channels[it->second];
+            for (unsigned k = 0; k < ch->mNumPositionKeys; ++k) {
+                const aiVectorKey& key = ch->mPositionKeys[k];
+                out.position.push_back({ static_cast<float>(key.mTime) / tps, { key.mValue.x, key.mValue.y, key.mValue.z } });
+            }
+            for (unsigned k = 0; k < ch->mNumRotationKeys; ++k) {
+                const aiQuatKey& key = ch->mRotationKeys[k];
+                out.rotation.push_back({ static_cast<float>(key.mTime) / tps, { key.mValue.x, key.mValue.y, key.mValue.z, key.mValue.w } });
+            }
+            for (unsigned k = 0; k < ch->mNumScalingKeys; ++k) {
+                const aiVectorKey& key = ch->mScalingKeys[k];
+                out.scale.push_back({ static_cast<float>(key.mTime) / tps, { key.mValue.x, key.mValue.y, key.mValue.z } });
+            }
+        }
+        skin.clips.push_back(std::move(clip));
+    }
+}
+
+// 骨つきメッシュ：頂点ごとの骨の影響（上位4本）を求める
+void ReadWeights(const aiMesh* mesh, const std::unordered_map<std::string, int>& index, SkinMesh& out, std::vector<VertexSkin>& perVertex)
+{
+    perVertex.assign(mesh->mNumVertices, VertexSkin{});
+    std::vector<int> count(mesh->mNumVertices, 0);
+    for (unsigned b = 0; b < mesh->mNumBones; ++b) {
+        const aiBone* bone = mesh->mBones[b];
+        auto it = index.find(bone->mName.C_Str());
+        const int boneIndex = static_cast<int>(out.boneJoint.size());
+        out.boneJoint.push_back(it != index.end() ? it->second : 0);
+        out.boneOffset.push_back(ToEngineMatrix(bone->mOffsetMatrix));
+        for (unsigned w = 0; w < bone->mNumWeights; ++w) {
+            const unsigned v = bone->mWeights[w].mVertexId;
+            const float weight = bone->mWeights[w].mWeight;
+            VertexSkin& vs = perVertex[v];
+            if (count[v] < 4) {
+                vs.bone[count[v]] = static_cast<uint16_t>(boneIndex);
+                vs.weight[count[v]] = weight;
+                ++count[v];
+            }
+            else {
+                int smallest = 0;
+                for (int k = 1; k < 4; ++k) {
+                    if (vs.weight[k] < vs.weight[smallest]) {
+                        smallest = k;
+                    }
+                }
+                if (weight > vs.weight[smallest]) {
+                    vs.bone[smallest] = static_cast<uint16_t>(boneIndex);
+                    vs.weight[smallest] = weight;
+                }
+            }
+        }
+    }
+    // 合計を1にそろえる（影響する骨が無い頂点は、最初の骨に100%）
+    for (unsigned v = 0; v < mesh->mNumVertices; ++v) {
+        VertexSkin& vs = perVertex[v];
+        const float sum = vs.weight[0] + vs.weight[1] + vs.weight[2] + vs.weight[3];
+        if (sum > 1e-6f) {
+            for (int k = 0; k < 4; ++k) {
+                vs.weight[k] /= sum;
+            }
+        }
+        else {
+            vs.bone[0] = 0;
+            vs.weight[0] = 1.0f;
+        }
+    }
+}
+
 // ノードを辿り、メッシュに親からの累積変換を焼き込んで追加する
-void BuildMeshes(const aiScene* scene, const aiNode* node, const aiMatrix4x4& parent, ModelData& modelData)
+//   骨つきメッシュは、ノードの変換を焼き込まない（骨の動きで位置が決まる）。skin が nullptr なら骨は読まない
+void BuildMeshes(const aiScene* scene, const aiNode* node, const aiMatrix4x4& parent, ModelData& modelData,
+    SkinData* skin, const std::unordered_map<std::string, int>& jointIndex)
 {
     const aiMatrix4x4 world = parent * node->mTransformation;
     aiMatrix3x3 normalMatrix(world);
@@ -264,6 +374,17 @@ void BuildMeshes(const aiScene* scene, const aiNode* node, const aiMatrix4x4& pa
         MeshData meshData;
         meshData.materialName = "mat_" + std::to_string(mesh->mMaterialIndex);
 
+        const bool skinned = skin && mesh->HasBones();
+        SkinMesh skinMesh;
+        std::vector<VertexSkin> perVertexSkin;
+        if (skinned) {
+            skinMesh.skinned = true;
+            ReadWeights(mesh, jointIndex, skinMesh, perVertexSkin);
+        }
+        const aiMatrix4x4 meshWorld = skinned ? aiMatrix4x4() : world;
+        aiMatrix3x3 meshNormalMatrix(meshWorld);
+        meshNormalMatrix.Inverse().Transpose();
+
         for (unsigned f = 0; f < mesh->mNumFaces; ++f) {
             const aiFace& face = mesh->mFaces[f];
             if (face.mNumIndices != 3) {
@@ -271,8 +392,8 @@ void BuildMeshes(const aiScene* scene, const aiNode* node, const aiMatrix4x4& pa
             }
             for (unsigned e = 0; e < 3; ++e) {
                 const unsigned idx = face.mIndices[e];
-                aiVector3D p = world * mesh->mVertices[idx];
-                aiVector3D nrm = normalMatrix * mesh->mNormals[idx];
+                aiVector3D p = meshWorld * mesh->mVertices[idx];
+                aiVector3D nrm = meshNormalMatrix * mesh->mNormals[idx];
                 nrm.Normalize();
                 aiVector3D uv(0, 0, 0);
                 if (mesh->HasTextureCoords(0)) {
@@ -284,12 +405,21 @@ void BuildMeshes(const aiScene* scene, const aiNode* node, const aiMatrix4x4& pa
                 v.normal = { -nrm.x, nrm.y, nrm.z };
                 v.texcoord = { uv.x, uv.y };
                 meshData.vertices.push_back(v);
+                if (skinned) {
+                    skinMesh.bindPosition.push_back({ p.x, p.y, p.z });
+                    skinMesh.bindNormal.push_back({ nrm.x, nrm.y, nrm.z });
+                    skinMesh.weights.push_back(perVertexSkin[idx]);
+                }
             }
+        }
+        if (skin) {
+            skinMesh.baseVertices = meshData.vertices; // 静止姿勢の結果は、あとで入れ直す
+            skin->meshes.push_back(std::move(skinMesh));
         }
         modelData.meshes.push_back(std::move(meshData));
     }
     for (unsigned i = 0; i < node->mNumChildren; ++i) {
-        BuildMeshes(scene, node->mChildren[i], world, modelData);
+        BuildMeshes(scene, node->mChildren[i], world, modelData, skin, jointIndex);
     }
 }
 }
@@ -308,7 +438,7 @@ bool LoadModelFile(const std::string& directoryPath, const std::string& fileName
 
     Assimp::Importer importer;
     const aiScene* scene = importer.ReadFile(filePath.c_str(),
-        aiProcess_FlipWindingOrder | aiProcess_FlipUVs | aiProcess_Triangulate | aiProcess_GenNormals);
+        aiProcess_FlipWindingOrder | aiProcess_FlipUVs | aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_LimitBoneWeights);
     if (!scene || !scene->HasMeshes()) {
         return false;
     }
@@ -351,9 +481,38 @@ bool LoadModelFile(const std::string& directoryPath, const std::string& fileName
     }
 
     modelData.rootNode = ReadNode(scene->mRootNode);
-    BuildMeshes(scene, scene->mRootNode, aiMatrix4x4(), modelData);
+
+    // 骨（メッシュに骨が付いているモデルだけ）
+    bool hasBones = false;
+    for (unsigned i = 0; i < scene->mNumMeshes; ++i) {
+        hasBones = hasBones || scene->mMeshes[i]->HasBones();
+    }
+    std::shared_ptr<SkinData> skin;
+    std::unordered_map<std::string, int> jointIndex;
+    if (hasBones) {
+        skin = std::make_shared<SkinData>();
+        FlattenJoints(scene->mRootNode, -1, *skin, jointIndex);
+        ReadClips(scene, *skin, jointIndex);
+    }
+
+    BuildMeshes(scene, scene->mRootNode, aiMatrix4x4(), modelData, skin.get(), jointIndex);
     if (modelData.meshes.empty()) {
         return false;
+    }
+
+    // 骨つきなら、静止姿勢（アニメーションなし）の頂点を求めて、普通の頂点データに入れておく
+    //   （骨を動かさない描画・バウンディングボックスはこの形を使う）
+    if (skin) {
+        std::vector<Matrix4x4> globals;
+        SkinMath::ComputeGlobals(*skin, nullptr, 0.0f, nullptr, 0.0f, 0.0f, globals);
+        for (size_t m = 0; m < modelData.meshes.size() && m < skin->meshes.size(); ++m) {
+            if (!skin->meshes[m].skinned) {
+                continue;
+            }
+            SkinMath::SkinVertices(skin->meshes[m], globals, modelData.meshes[m].vertices.data());
+            skin->meshes[m].baseVertices = modelData.meshes[m].vertices;
+        }
+        modelData.skin = skin;
     }
     out = std::move(modelData);
     return true;

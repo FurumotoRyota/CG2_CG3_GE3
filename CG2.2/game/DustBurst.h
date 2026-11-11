@@ -19,12 +19,19 @@ class Object3dCommon;
 class DustBurst
 {
 public:
-    static constexpr size_t kMax = 128;
+    static constexpr size_t kMax = 256;
 
     void Initialize(Object3dCommon* common, const char* modelName);
 
     // count 個を position から放射状に出す（足りなければ出せるだけ）
     void Emit(const Vector3& position, int count, float speed, float size, float life, float r, float g, float b);
+
+    // 向きを持った粒を出す（銃口の閃光・火花・血しぶき・薬莢など）
+    //   dir    : 飛ぶ向き（長さ1でなくてよい。0なら向きなし）   spread: 向きのばらつき（0〜1くらい）
+    //   gravity: 下へ引く力（0なら浮いたまま）   drag: 空気抵抗（大きいほどすぐ止まる）
+    //   bright : true なら陰影をつけず、光って見える（閃光・火花）
+    void EmitBurst(const Vector3& position, const Vector3& dir, int count, float speed, float spread, float size, float life,
+        float r, float g, float b, float gravity, float drag, bool bright);
 
     void Step(float dt);
     void Update(const Matrix4x4& view, const Matrix4x4& proj);
@@ -43,6 +50,8 @@ private:
         float life = 1.0f;
         float size = 0.3f;
         float spin = 0.0f;
+        float gravity = 0.0f;
+        float drag = 3.0f;
     };
 
     GameObjectPool pool_;

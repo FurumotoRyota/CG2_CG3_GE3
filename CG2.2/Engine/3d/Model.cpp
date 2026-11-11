@@ -12,6 +12,7 @@ void Model::Initialize(DirectXCommon* dxCommon, TextureManager* textureManager, 
     assert(dxCommon);
     assert(textureManager);
     textureManager_ = textureManager;
+    skin_ = modelData.skin;
 
     subMeshes_.clear();
     subMeshes_.resize(modelData.meshes.size());
@@ -69,26 +70,29 @@ void Model::Initialize(DirectXCommon* dxCommon, TextureManager* textureManager, 
     }
 }
 
-void Model::DrawGeometry(ID3D12GraphicsCommandList* commandList) const
+void Model::DrawGeometry(ID3D12GraphicsCommandList* commandList, const D3D12_VERTEX_BUFFER_VIEW* skinnedViews) const
 {
-    for (const SubMesh& subMesh : subMeshes_) {
+    for (size_t i = 0; i < subMeshes_.size(); ++i) {
+        const SubMesh& subMesh = subMeshes_[i];
         if (subMesh.vertexCount == 0) {
             continue;
         }
-        commandList->IASetVertexBuffers(0, 1, &subMesh.vertexBufferView);
+        commandList->IASetVertexBuffers(0, 1, skinnedViews ? &skinnedViews[i] : &subMesh.vertexBufferView);
         commandList->DrawInstanced(UINT(subMesh.vertexCount), 1, 0, 0); FrameStats::Count(FrameStats::kShadow, subMesh.vertexCount);
     }
 }
 
-void Model::Draw(ID3D12GraphicsCommandList* commandList, const D3D12_GPU_DESCRIPTOR_HANDLE* overrideSrv) const
+void Model::Draw(ID3D12GraphicsCommandList* commandList, const D3D12_GPU_DESCRIPTOR_HANDLE* overrideSrv,
+    const D3D12_VERTEX_BUFFER_VIEW* skinnedViews) const
 {
-    for (const SubMesh& subMesh : subMeshes_) {
+    for (size_t i = 0; i < subMeshes_.size(); ++i) {
+        const SubMesh& subMesh = subMeshes_[i];
         if (subMesh.vertexCount == 0) {
             continue; // 空メッシュ(GPUリソース未生成)はスキップ
         }
         commandList->SetGraphicsRootDescriptorTable(
             BasicPipeline::kRootTexture, overrideSrv ? *overrideSrv : textureManager_->GetSrvHandleGPU(subMesh.textureHandle));
-        commandList->IASetVertexBuffers(0, 1, &subMesh.vertexBufferView);
+        commandList->IASetVertexBuffers(0, 1, skinnedViews ? &skinnedViews[i] : &subMesh.vertexBufferView);
         commandList->DrawInstanced(UINT(subMesh.vertexCount), 1, 0, 0); FrameStats::Count(FrameStats::kModel, subMesh.vertexCount);
     }
 }

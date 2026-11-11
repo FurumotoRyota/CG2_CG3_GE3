@@ -1,8 +1,10 @@
 ﻿#pragma once
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "../3d/SkinData.h"
 #include "../3d/VertexData.h"
 #include "../math/Matrix4x4.h"
 
@@ -31,4 +33,5 @@ struct ModelData
     std::vector<MeshData> meshes;
     std::unordered_map<std::string, MaterialData> materials; // マテリアル名 -> テクスチャ情報
     Node rootNode; // ノード階層（各ノードのtransformは頂点に焼き込み済み。確認・表示用）
+    std::shared_ptr<SkinData> skin; // 骨つきモデルのときだけ入る（骨・アニメーション・頂点ごとの骨の影響）
 };

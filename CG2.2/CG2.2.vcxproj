@@ -150,17 +150,14 @@
     <ClInclude Include="game\Tumbleweeds.h" />
     <ClInclude Include="game\MapRenderer.h" />
     <ClInclude Include="game\SpinningObject.h" />
-    <ClInclude Include="scene\ChangelogScene.h" />
-    <ClInclude Include="scene\GameScene.h" />
-    <ClInclude Include="scene\PoolTestScene.h" />
     <ClInclude Include="scene\WesternShooterCommon.h" />
     <ClInclude Include="scene\WesternShooterScene.h" />
     <ClInclude Include="scene\MapEditorScene.h" />
-    <ClInclude Include="scene\GeometryShaderScene.h" />
-    <ClInclude Include="game2d\PlatformerGame.h" />
     <ClInclude Include="game2d\CubeMesh.h" />
     <ClInclude Include="scene\TitleScene.h" />
     <ClInclude Include="scene\StartupScene.h" />
+    <ClInclude Include="scene\SakuraStorm.h" />
+    <ClInclude Include="scene\ResultScene.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="core\Game.cpp" />
@@ -172,16 +169,13 @@
     <ClCompile Include="game\Tumbleweeds.cpp" />
     <ClCompile Include="game\MapRenderer.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="scene\GameScene.cpp" />
-    <ClCompile Include="scene\PoolTestScene.cpp" />
     <ClCompile Include="scene\WesternShooterEnemyAI.cpp" />
     <ClCompile Include="scene\WesternShooterScene.cpp" />
     <ClCompile Include="scene\MapEditorScene.cpp" />
-    <ClCompile Include="scene\GeometryShaderScene.cpp" />
-    <ClCompile Include="scene\GameSceneIO.cpp" />
-    <ClCompile Include="game2d\PlatformerGame.cpp" />
     <ClCompile Include="scene\TitleScene.cpp" />
     <ClCompile Include="scene\StartupScene.cpp" />
+    <ClCompile Include="scene\SakuraStorm.cpp" />
+    <ClCompile Include="scene\ResultScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Engine\EngineLib.vcxproj">

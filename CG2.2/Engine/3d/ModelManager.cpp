@@ -1,5 +1,6 @@
 ﻿#include "ModelManager.h"
 #include "../3d/ModelLoader.h"
+#include "../base/Logger.h"
 
 #include <cassert>
 
@@ -24,8 +25,15 @@ Model* ModelManager::Load(const std::string& modelName)
     }
     else if (ModelLoader::LoadModelFile("resources", modelName, modelData)) {
         // assimpで読み込めた (obj / gltf / glb / fbx ...)
+        Logger::Log("Model loaded: " + modelName + (modelData.skin ? " (skinned)" : "") + "\n");
+    }
+    else if (modelName.size() > 4 && modelName.compare(modelName.size() - 4, 4, ".fbx") == 0 &&
+        ModelLoader::LoadModelFile("resources", modelName.substr(0, modelName.size() - 4) + ".gltf", modelData)) {
+        // FBX が読めない assimp でも、同じ名前の .gltf（同じ骨・アニメーション）があれば、そちらを使う
+        Logger::Log("Model fallback to gltf: " + modelName + "\n");
     }
     else {
+        Logger::Log("Model load FAILED (assimp): " + modelName + "\n");
         // assimp未配置・読み込み失敗時は従来のobjローダーで読む
         modelData = ModelLoader::LoadObj("resources", modelName);
     }

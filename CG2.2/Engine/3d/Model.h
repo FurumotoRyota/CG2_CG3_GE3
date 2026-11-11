@@ -2,6 +2,7 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "../3d/ModelData.h"
@@ -21,10 +22,17 @@ public:
 
     // 全サブメッシュを描画する（マテリアル・WVPのCBVは呼び出し側で設定しておく）
     // overrideSrv: use this texture for every sub mesh instead of the model's own textures (e.g. a video frame)
-    void Draw(ID3D12GraphicsCommandList* commandList, const D3D12_GPU_DESCRIPTOR_HANDLE* overrideSrv = nullptr) const;
+    // skinnedViews: 骨を動かした頂点バッファ（Object3d が持つ SkinInstance のもの）。指定するとモデルの頂点バッファの代わりに使う
+    void Draw(ID3D12GraphicsCommandList* commandList, const D3D12_GPU_DESCRIPTOR_HANDLE* overrideSrv = nullptr,
+        const D3D12_VERTEX_BUFFER_VIEW* skinnedViews = nullptr) const;
 
     // 形だけ描く（影の描画パス用。テクスチャは設定しない）
-    void DrawGeometry(ID3D12GraphicsCommandList* commandList) const;
+    void DrawGeometry(ID3D12GraphicsCommandList* commandList, const D3D12_VERTEX_BUFFER_VIEW* skinnedViews = nullptr) const;
+
+    // 骨つきモデルか（FBX などで骨とアニメーションを持つ）
+    bool IsSkinned() const { return skin_ != nullptr; }
+    const SkinData* GetSkin() const { return skin_.get(); }
+    size_t GetSubMeshCount() const { return subMeshes_.size(); }
 
     // モデル座標系での外接ボックス（Viewportでのクリック判定・選択枠の表示に使う）
     const Vector3& GetBoundsMin() const { return boundsMin_; }
@@ -40,6 +48,7 @@ private:
     };
 
     TextureManager* textureManager_ = nullptr;
+    std::shared_ptr<const SkinData> skin_;
     std::vector<SubMesh> subMeshes_;
     Vector3 boundsMin_{ -0.5f, -0.5f, -0.5f };
     Vector3 boundsMax_{ 0.5f, 0.5f, 0.5f };

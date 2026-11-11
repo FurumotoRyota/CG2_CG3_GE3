@@ -8,6 +8,7 @@
 //     view.Build(map);                                              // マップが変わったとき
 //     view.SetGateVisible(i, false);                                // 区切りが開いたら柵を消す
 //     view.Update(viewMatrix, projMatrix);  view.Draw();            // 毎フレーム（Draw は Object3dCommon::PreDraw のあと）
+#include <array>
 #include <cstddef>
 #include <vector>
 
@@ -23,8 +24,8 @@ class MapRenderer
 {
 public:
     static constexpr size_t kMaxBlocks = 2048;
-    static constexpr size_t kMaxBuildingBlocks = 768;
-    static constexpr size_t kMaxPropBlocks = 1536; // 飾り（荷馬車・木箱、地面のまだら、影、サボテン、草）
+    static constexpr size_t kMaxBuildingBlocks = 1536;
+    static constexpr size_t kMaxPropBlocks = 3072; // 飾り（荷馬車・木箱、地面のまだら、影、サボテン、草）
     static constexpr const char* kCubeName = "ws_cube"; // Initialize で登録する単色の立方体（色は Material の color で付ける）。他の見た目でも使える
 
     void Initialize(Object3dCommon* common, ModelManager* models);
@@ -62,6 +63,17 @@ private:
     void UpdateItems(std::vector<Item>& items, const Matrix4x4& view, const Matrix4x4& proj);
     static void DrawItems(std::vector<Item>& items);
 
+    // 3Dモデル（resources/ws_*.obj。Low Poly Desert & Western Pack を、色をパレットに焼いたもの）
+    enum ModelId : int
+    {
+        kMSaloon, kMStore, kMJail, kMBarrel, kMCrate, kMTnt, kMWagon, kMCoveredWagon, kMSaguaro,
+        kMBarrelCactus, kMPricklyPear, kMDryBush, kMSkull, kMDeadTree, kMHitchingPost, kMWantedBoard,
+        kMWaterTower, kMWindmill, kMMineCart, kMFence, kMArch, kMMesa, kMTumbleweed, kMRibcage, kMCampfire, kMHat, kMGold, kMSaddle,
+        kModelCount
+    };
+    // 飾りのモデルを1つ置く（当たり判定は無い。見た目だけ）。yaw はY軸まわりの回転（ラジアン）。プールが満杯なら false
+    bool AddModel(ModelId id, float px, float py, float pz, float yaw, float sx, float sy, float sz);
+
     bool AddBuilding(const MapData::BuildingRect& b);
     // 飾りの立方体を1つ置く（当たり判定は無い。見た目だけ）
     bool AddProp(float px, float py, float pz, float sx, float sy, float sz, float r, float g, float b);
@@ -73,6 +85,7 @@ private:
     GameObjectPool blockPool_;
     GameObjectPool buildingPool_;
     GameObjectPool propPool_;
+    std::array<GameObjectPool, kModelCount> modelPools_;
     GameObject floor_;
     GameObject gates_[MapData::kMaxGates];
     bool gateVisible_[MapData::kMaxGates] = {};

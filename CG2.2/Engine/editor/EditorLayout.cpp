@@ -201,5 +201,57 @@ namespace EditorLayout
         }
         drawList->PopClipRect();
     }
+
+    void DrawViewportDim(float alpha)
+    {
+        if (!g_input.valid) {
+            return;
+        }
+        const int a = static_cast<int>((std::min)((std::max)(alpha, 0.0f), 1.0f) * 255.0f);
+        ImGui::GetForegroundDrawList()->AddRectFilled(g_imageMin, g_imageMax, IM_COL32(0, 0, 0, a));
+    }
+
+    void DrawViewportTint(int r, int g, int b, float alpha)
+    {
+        if (!g_input.valid) {
+            return;
+        }
+        const int a = static_cast<int>((std::min)((std::max)(alpha, 0.0f), 1.0f) * 255.0f);
+        ImGui::GetForegroundDrawList()->AddRectFilled(g_imageMin, g_imageMax, IM_COL32(r, g, b, a));
+    }
+
+    void DrawViewportBar(const Vector2& center, const Vector2& size, float frac, unsigned int color)
+    {
+        if (!g_input.valid) {
+            return;
+        }
+        const float scaleX = (g_imageMax.x - g_imageMin.x) / WinApp::kGameWidth;
+        const float scaleY = (g_imageMax.y - g_imageMin.y) / WinApp::kGameHeight;
+        const ImVec2 p0 = { g_imageMin.x + (center.x - size.x * 0.5f) * scaleX, g_imageMin.y + (center.y - size.y * 0.5f) * scaleY };
+        const ImVec2 p1 = { g_imageMin.x + (center.x + size.x * 0.5f) * scaleX, g_imageMin.y + (center.y + size.y * 0.5f) * scaleY };
+        const float f = (std::min)((std::max)(frac, 0.0f), 1.0f);
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        drawList->AddRectFilled({ p0.x - 2.0f, p0.y - 2.0f }, { p1.x + 2.0f, p1.y + 2.0f }, IM_COL32(0, 0, 0, 200)); // 枠
+        drawList->AddRectFilled(p0, { p0.x + (p1.x - p0.x) * f, p1.y }, color);
+    }
+
+    void DrawViewportText(const Vector2& center, const char* text, float sizePx, unsigned int color)
+    {
+        if (!g_input.valid) {
+            return;
+        }
+        const float scaleX = (g_imageMax.x - g_imageMin.x) / WinApp::kGameWidth;
+        const float scaleY = (g_imageMax.y - g_imageMin.y) / WinApp::kGameHeight;
+        const float fontSize = sizePx * scaleY;
+        ImFont* font = ImGui::GetFont();
+        const ImVec2 size = font->CalcTextSizeA(fontSize, 100000.0f, 0.0f, text);
+        const ImVec2 pos = { g_imageMin.x + center.x * scaleX - size.x * 0.5f, g_imageMin.y + center.y * scaleY - size.y * 0.5f };
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        drawList->PushClipRect(g_imageMin, g_imageMax, true);
+        const float off = (std::max)(1.0f, fontSize * 0.06f);
+        drawList->AddText(font, fontSize, { pos.x + off, pos.y + off }, IM_COL32(0, 0, 0, 220), text); // 影
+        drawList->AddText(font, fontSize, pos, color, text);
+        drawList->PopClipRect();
+    }
 }
 #endif // USE_IMGUI

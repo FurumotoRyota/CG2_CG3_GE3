@@ -51,5 +51,15 @@ namespace EditorLayout
     // Draw a position marker (crosshair + label) at a game-screen pixel position.
     // If the position is outside the viewport, an arrow is drawn on the nearest edge instead.
     void DrawViewportMarker(const Vector2& position, const char* label, unsigned int color, bool selected);
+
+    // Viewportの上に、画面全体を暗くする板を重ねる（alpha 0..1。黒）
+    void DrawViewportDim(float alpha);
+    // 指定した色（0..255）でビューポート全体を覆う。alpha は 0..1
+    void DrawViewportTint(int r, int g, int b, float alpha);
+    // ゲーム画面の座標で、体力ゲージのような横棒を描く（center は中心、frac は 0..1 の満たし具合）
+    void DrawViewportBar(const Vector2& center, const Vector2& size, float frac, unsigned int color);
+
+    // Viewportの上に文字を描く。center はゲーム画面のピクセル座標（文字の中心）、sizePx は文字の高さ（ゲーム画面のピクセル）、color は IM_COL32 形式
+    void DrawViewportText(const Vector2& center, const char* text, float sizePx, unsigned int color);
 }
 #endif // USE_IMGUI

@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <d3d12.h>
 #include <wrl/client.h>
+#include <memory>
 #include <string>
 
 #include "../base/BlendMode.h"
@@ -10,6 +11,7 @@
 
 class Object3dCommon;
 class Model;
+class SkinInstance;
 
 /// <summary>
 /// 3Dオブジェクト1体ぶん（Transform・マテリアル・WVP）
@@ -31,6 +33,20 @@ public:
     void Draw();
     // 影の描画パス用（影を落とす設定のときだけ、形を光から見た位置で描く）
     void DrawShadow(ID3D12GraphicsCommandList* commandList);
+
+    // --- 骨つきモデル（FBX など）のとき ---
+    // 骨つきモデルを読むと、SetModel / Initialize の時点で、この個体専用の頂点バッファを持つ。
+    // Update(view, proj) とは別に、毎フレーム UpdateSkin(dt) を呼ぶと、アニメーションが進む。
+    bool IsSkinned() const { return skin_ != nullptr; }
+    // アニメーションを切り替える（モデルに無い名前は false）。同じアニメがループ再生中なら何もしない
+    //   blend：前の姿勢から混ぜる秒数　speed：再生の速さ（1が元の速さ）
+    //   restart：false なら、ループしないアニメでも、すでに同じものが流れていれば何もしない（倒れたままにするときなど）
+    bool PlayAnimation(const std::string& clip, bool loop = true, float blend = 0.15f, float speed = 1.0f, bool restart = true);
+    void UpdateSkin(float dt);
+    bool HasAnimation(const std::string& clip) const;
+    bool IsAnimationFinished() const; // ループしないアニメが最後まで進んだか
+    // 骨に付いている点が、いまワールドのどこにあるか（restPoint は静止姿勢でのモデル座標の点）。手の位置に武器を置くときなど
+    bool GetBonePointWorld(const std::string& boneName, const Vector3& restPoint, Vector3& out) const;
 
     Transform& GetTransform() { return transform_; }
     Transform& GetUvTransform() { return uvTransform_; }
@@ -65,6 +81,8 @@ private:
 
     Transform transform_{ {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
     Transform uvTransform_{ {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
+
+    std::shared_ptr<SkinInstance> skin_; // 骨つきモデルのときだけ
 
     Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
     Material* materialData_ = nullptr;
