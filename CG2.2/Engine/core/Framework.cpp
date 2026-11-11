@@ -24,6 +24,7 @@ void Framework::Initialize()
     spriteCommon_.Initialize(&dxCommon_, &textureManager_);
     particleSystem_.Initialize(&dxCommon_, &srvManager_, &textureManager_);
     instancedPlaneCommon_.Initialize(&dxCommon_, &textureManager_, &srvManager_);
+    postProcess_.Initialize(&dxCommon_, &srvManager_); // ポストエフェクト（SSAO・ブルーム・トーンマップ）
 
 #ifdef USE_IMGUI
     // ゲーム画面(オフスクリーン)をImGuiのテクスチャとして使うためのSRV
@@ -46,6 +47,7 @@ void Framework::Initialize()
     context_.particleSystem = &particleSystem_;
     context_.instancedPlaneCommon = &instancedPlaneCommon_;
     context_.sceneManager = &sceneManager_;
+    context_.postProcess = &postProcess_;
 
     sceneManager_.Initialize(&context_);
 }
@@ -54,6 +56,7 @@ void Framework::Finalize()
 {
     sceneManager_.Finalize(); // GPU使用中のリソースを持つシーンを先に破棄する
 
+    postProcess_.Finalize();
     ShadowMap::Instance().Finalize();
     EnvironmentMap::Instance().Finalize(); // シングルトンはデバイスより後まで生き残るので、先にGPUリソースを解放する
     dxCommon_.Finalize();
@@ -97,24 +100,24 @@ void Framework::Run()
             imguiManager_.End();
         }
 
-#ifdef USE_IMGUI
-        // エディタ表示：ゲーム画面をオフスクリーンに描く → 画面にはImGuiだけを描く
+        // シーンはHDRの画面に描き、ポストエフェクトで最終の画面へ書き出す
         dxCommon_.BeginSceneRender();
         sceneManager_.Draw();
         dxCommon_.EndSceneRender();
 
+        dxCommon_.BeginPostTarget();
+        postProcess_.Execute(dxCommon_.GetCommandList(), dxCommon_.GetPostTargetRtv(), dxCommon_.GetViewport(), dxCommon_.GetScissorRect());
+        dxCommon_.EndPostTarget();
+
+#ifdef USE_IMGUI
+        // エディタ表示：ゲーム画面(オフスクリーン)はImGuiのパネルに貼る → 画面にはImGuiだけを描く
         dxCommon_.BeginBackBuffer();
         imguiManager_.Draw();
+#endif
         {
             FrameStats::ScopedMs presentTimer(FrameStats::Cur().presentMs);
             dxCommon_.PostDraw();
         }
-#else
-        // ImGuiなし：ゲーム画面をそのままウィンドウに描く
-        dxCommon_.PreDraw();
-        sceneManager_.Draw();
-        dxCommon_.PostDraw();
-#endif
 
         {
             FrameStats::ScopedMs sleepTimer(FrameStats::Cur().sleepMs);

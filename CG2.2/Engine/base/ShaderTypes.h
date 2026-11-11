@@ -57,12 +57,33 @@ struct DirectionalLight
 
     // 視線ベクトル（鏡面反射）用のカメラ位置
     Vector3 cameraPosition;
-    float padding0;
+    float shadowRange;    // 影の範囲の半径（ワールド）。やわらかい影のぼかし幅の計算に使う（0ならぼかさない）
 
     // 配置したライト（ポイント/スポット）の数
     int32_t lightCount;
     float shadowBias;     // 影のバイアス（影のぎざぎざ/縞を防ぐ）
     float shadowStrength; // 影の濃さ（0～1）
     int32_t shadowEnabled; // 0:影なし 1:ディレクショナルライトの影
+    float shadowSoftness;  // 太陽の見かけの大きさ（大きいほど、影の落ちる先がぼける）。0でくっきり
+    float ambientSky;      // 空からの環境光の強さ（0なら従来どおり。PBRの環境反射の倍率にもなる：0.5で等倍）
+    float groundAo;        // 壁の足もとの暗がり（0〜1。0なら無し）
+    int32_t shadowQuality; // 0:3x3のぼかし 1:やわらかい影（距離でぼける）
+
+    // 時間帯（TimeOfDay）が決める空の色と霧。skyMode が 0 なら従来どおり（キューブマップ・霧なし）
+    Vector3 skyHorizon;    // 地平線の空の色（HDR）
+    float fogDensity;      // 霧の濃さ（0なら霧なし）
+    Vector3 skyZenith;     // 真上の空の色
+    float fogStart;        // 霧が始まるカメラからの距離
+    Vector3 skyGround;     // 地面側の色（下向きの映り込み）
+    int32_t skyMode;       // 0:キューブマップ 1:空の色から計算（時間帯）
+    Vector3 fogColor;      // 霧の色
+    float skyPadding;
+
+    // 雨で濡れた見た目（TimeOfDay / RenderLook が書く）
+    float wetness;         // 濡れ具合（0〜1）。暗く・つやが強くなる
+    float puddleAmount;    // 水たまりのできやすさ（0〜1。0で水たまりなし）
+    float rainTime;        // 経過秒（水たまりの波紋用）
+    float rainAmount;      // いま降っている雨の量（0〜1。水たまりの波紋の強さ）
+
     LightData lights[kMaxLights];
 };

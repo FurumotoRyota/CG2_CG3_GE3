@@ -10,12 +10,16 @@
 //     view.Update(viewMatrix, projMatrix);  view.Draw();            // 毎フレーム（Draw は Object3dCommon::PreDraw のあと）
 #include <array>
 #include <cstddef>
+#include <memory>
 #include <vector>
 
 #include "GameObject.h"
 #include "GameObjectPool.h"
 #include "MapData.h"
+#include "3d/StaticBatcher.h"
 #include "math/Matrix4x4.h"
+#include "math/Vector2.h"
+#include "math/Vector3.h"
 
 class Object3dCommon;
 class ModelManager;
@@ -39,11 +43,21 @@ public:
     // 画面に映る範囲（地面の x,z の四角）。この外にある壁・建物・飾りは、更新も描画もしない（軽くするため）。
     // 呼ばなければ全部を描く。カメラが動くたびに Update の前に呼ぶ
     void SetVisibleRect(float minX, float minZ, float maxX, float maxZ);
+    // 飾り（草・小物・樽など小さいもの）だけ、別の範囲で絞る。演出で広く描くときも、飾りは狭いままにして軽くする。呼ばなければ SetVisibleRect と同じ
+    void SetPropRect(float minX, float minZ, float maxX, float maxZ);
+    // 建物の正面の灯り（窓・ランタン）を置く場所（ワールド座標）。Build のあとに取れる。夜の明かり（RenderLook::lamps）に使う
+    const std::vector<Vector3>& LampSpots() const { return lampSpots_; }
+
     // 直前の Update で描く対象になった立方体の数（確認用）
     size_t VisibleCount() const { return visibleCount_; }
 
+    // 自機・敵の位置（地面の x,z）。カメラとの間にある建物は、半透明にして中の様子を見せる（毎フレーム Update の前に呼ぶ）
+    void SetOcclusionTargets(const std::vector<Vector2>& targets) { occlusionTargets_ = targets; }
+
     void Update(const Matrix4x4& view, const Matrix4x4& proj);
     void Draw();
+    // 影の深度を描く（ShadowMap::Begin と End の間で呼ぶ）。centerX, centerZ から radius より遠いものは描かない
+    void DrawShadow(ID3D12GraphicsCommandList* commandList, float centerX, float centerZ, float radius);
 
     // 壁の高さ・樽の高さ（見た目）
     static constexpr float kWallHeight = 1.6f;
@@ -58,10 +72,15 @@ private:
         float z = 0.0f;
         float radius = 0.0f;
         bool visible = true;
+        int group = -1;    // 建物の部品なら、その建物の番号
+        bool cube = false; // 立方体の飾りか（モデルではない）
     };
     void Track(std::vector<Item>& items, GameObject* obj, float x, float z, float sx, float sz);
-    void UpdateItems(std::vector<Item>& items, const Matrix4x4& view, const Matrix4x4& proj);
+    void UpdateItems(std::vector<Item>& items, const Matrix4x4& view, const Matrix4x4& proj, bool useProp = false);
     static void DrawItems(std::vector<Item>& items);
+    // 動かない立方体・モデルを、タイル（10x10）ごとの大きなメッシュ1つにまとめる。描画の命令が数千回から数十回になる
+    void BakeStatic();
+    static void DrawShadowItems(std::vector<Item>& items, ID3D12GraphicsCommandList* commandList, float cx, float cz, float radius);
 
     // 3Dモデル（resources/ws_*.obj。Low Poly Desert & Western Pack を、色をパレットに焼いたもの）
     enum ModelId : int
@@ -82,6 +101,21 @@ private:
     // 地面の影（太陽は左＝-x 側。+x 側に len だけ伸びる）
     bool AddShadow(float xa, float za, float xb, float zb, float len);
 
+    // 建物1棟ぶんの部品（本体・飾り）をまとめたもの。カメラから見て自機や敵を隠すとき、まとめて半透明にする
+    struct BuildingGroup
+    {
+        float minX = 0.0f, maxX = 0.0f, minZ = 0.0f, maxZ = 0.0f;
+        float height = 4.0f;
+        float alpha = 1.0f;       // いまの不透明度
+        float applied = 1.0f;     // 部品に反映した不透明度
+        std::vector<GameObject*> parts;   // まとめられなかった部品（まとめたメッシュの半透明は StaticBatcher::SetGroupAlpha で行う）
+    };
+    void UpdateOcclusion(const Matrix4x4& view);
+    std::vector<BuildingGroup> buildingGroups_;
+    std::vector<Vector3> lampSpots_; // 建物の正面の灯りの位置
+    int currentGroup_ = -1; // AddBuilding の間だけ、部品を集めている建物の番号
+    std::vector<Vector2> occlusionTargets_;
+
     GameObjectPool blockPool_;
     GameObjectPool buildingPool_;
     GameObjectPool propPool_;
@@ -94,6 +128,11 @@ private:
     std::vector<Item> blockItems_;
     std::vector<Item> buildingItems_;
     std::vector<Item> propItems_;
+    StaticBatcher batcher_;                               // 動かない物をまとめた大きなメッシュ（エンジンの部品。画面外の省略も含む）
+    Object3dCommon* common_ = nullptr;
+    ModelManager* models_ = nullptr;
     float visMinX_ = -1.0e9f, visMinZ_ = -1.0e9f, visMaxX_ = 1.0e9f, visMaxZ_ = 1.0e9f;
+    float propMinX_ = -1.0e9f, propMinZ_ = -1.0e9f, propMaxX_ = 1.0e9f, propMaxZ_ = 1.0e9f;
+    bool propRectSet_ = false;
     size_t visibleCount_ = 0;
 };

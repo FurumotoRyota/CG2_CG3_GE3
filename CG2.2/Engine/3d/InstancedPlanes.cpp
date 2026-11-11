@@ -133,7 +133,7 @@ void InstancedPlaneCommon::Initialize(DirectXCommon* dxCommon, TextureManager* t
     psoDesc.DepthStencilState = depthStencilDesc;
     psoDesc.DSVFormat = DirectXCommon::kDsvFormat;
     psoDesc.NumRenderTargets = 1;
-    psoDesc.RTVFormats[0] = DirectXCommon::kRtvFormat;
+    psoDesc.RTVFormats[0] = DirectXCommon::kSceneFormat;
     psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     psoDesc.SampleDesc.Count = 1;
     psoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;

@@ -31,6 +31,8 @@ private:
     std::unique_ptr<SakuraStorm> storm_;  // 終わりの桜吹雪
 
     float time_ = 0.0f;
+    float loadTime_ = 0.0f;   // ロード表示用の時計（ドットの動き・フェード）
+    int loadWait_ = 0;        // 読み込みを始める前に、最初の絵を何フレームか見せるための数え
     bool leaving_ = false;
 
     // カメラ（画面の座標でのどこを中心に、どれだけ拡大して見ているか）

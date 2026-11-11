@@ -4,7 +4,19 @@ struct SkyConstants
     float4x4 invView;
     float projScaleX; // 射影行列の m[0][0]
     float projScaleY; // 射影行列の m[1][1]
-    float2 padding;
+    float mode;       // 0:キューブマップ 1:時間帯の空の色から計算
+    float padding;
+    float4 horizon;   // 地平線の色
+    float4 zenith;    // 真上の色
+    float4 ground;    // 地面側の色
+    float4 toSun;     // 太陽（月）のある方向（xyz）
+    float4 discColor; // 太陽の円盤の色（HDR。沈んでいれば0）
+    float4 glowColor; // 太陽まわりのにじみの色
+    float4 cloud;     // x=雲の量 y=星の量 z,w=雲の流れた量
+    float4 cloudLit;  // rgb=雲の明るい側の色 w=経過秒
+    float4 cloudShade;// rgb=雲の暗い側の色
+    float4 moonDir;   // 月のある方向
+    float4 moonColor; // 月の明るさ
 };
 ConstantBuffer<SkyConstants> gSky : register(b0);
 

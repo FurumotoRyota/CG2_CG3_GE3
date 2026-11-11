@@ -83,7 +83,7 @@ void GeometryPipeline::Initialize(DirectXCommon* dxCommon)
     desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     desc.DSVFormat = DirectXCommon::kDsvFormat;
     desc.NumRenderTargets = 1;
-    desc.RTVFormats[0] = DirectXCommon::kRtvFormat;
+    desc.RTVFormats[0] = DirectXCommon::kSceneFormat;
     desc.SampleDesc.Count = 1;
     desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
     desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;

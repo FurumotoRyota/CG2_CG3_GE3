@@ -3,11 +3,20 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <chrono>
 #include <cstdlib>
+#include <filesystem>
+#include <memory>
 
 #include "base/WinApp.h"
 #include "scene/SceneManager.h"
 #include "ResultScene.h"
+#include "TitleScene.h"
+#include "3d/ShadowMap.h"
+#include "3d/PostProcess.h"
+#include "base/DirectXCommon.h"
+#include "base/Logger.h"
+#include "core/LoadQueue.h"
 #include "3d/Object3dCommon.h"
 #include "input/Input.h"
 #include "math/Collision.h"
@@ -103,6 +112,14 @@ namespace {
     constexpr float kCorpseSpeed = 9.0f;      // 吹っ飛ぶ最初の速さ
     constexpr float kHitFlashTime = 0.09f;    // 当たったとき白く光る時間  // 区切りに入ってから最初の1体が出るまで
 
+    // マップのファイルの更新時刻（読めなければ0）。前回から変わったかどうかの目印にする
+    long long MapStamp()
+    {
+        std::error_code ec;
+        const auto t = std::filesystem::last_write_time(kMapPath, ec);
+        return ec ? 0 : static_cast<long long>(t.time_since_epoch().count());
+    }
+
     // マスの四角（ワールド座標）
     Collision::Rect CellRect(int x, int z)
     {
@@ -147,44 +164,75 @@ namespace {
 
 void WesternShooterScene::Initialize()
 {
-    camera_.SetPerspective(kCameraFov, static_cast<float>(WinApp::kGameWidth) / WinApp::kGameHeight, 0.1f, 300.0f);
-
-    // 斜め上から見るカメラ（画面の奥＝+z）。マウスの位置を求めるため、最初の1フレームの前に作っておく
-    camera_.SetLookAt({ 0.0f, kCameraHeight, -kCameraBack }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f });
-
-    player_.Initialize(ctx_->object3dCommon, "ws_man_player.fbx", { 0.0f, kHeight, 0.0f });
-    player_.GetObject3d().GetTransform().Scale = { kPlayerBodyScale, kPlayerBodyScale, kPlayerBodyScale };
-    if (Material* pm = player_.GetObject3d().GetMaterial()) {
-        pm->lightingMode = 0; // 自機は陰影なしで明るく見せる（敵と見分けやすいように）
+    while (!InitStep()) {
     }
-    revolver_.Initialize(ctx_->object3dCommon, "ws_revolver.obj", { 0.0f, kHeight, 0.0f });
-    if (Material* gm = revolver_.GetObject3d().GetMaterial()) {
-        gm->lightingMode = 0;
-    }
-    reticle_.Initialize(ctx_->object3dCommon, "teapot.obj", { 0.0f, kHeight, 0.0f });
-    reticle_.GetObject3d().GetTransform().Scale = { 0.12f, 0.12f, 0.12f };
-    SetTint(reticle_, 1.0f, 1.0f, 1.0f);
+}
 
+bool WesternShooterScene::InitStep()
+{
+    switch (initStep_) {
+    case 0:
+        camera_.SetPerspective(kCameraFov, static_cast<float>(WinApp::kGameWidth) / WinApp::kGameHeight, 0.1f, 300.0f);
+        // 斜め上から見るカメラ（画面の奥＝+z）。マウスの位置を求めるため、最初の1フレームの前に作っておく
+        camera_.SetLookAt({ 0.0f, kCameraHeight, -kCameraBack }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f });
+
+        player_.Initialize(ctx_->object3dCommon, "ws_man_player.fbx", { 0.0f, kHeight, 0.0f });
+        player_.GetObject3d().GetTransform().Scale = { kPlayerBodyScale, kPlayerBodyScale, kPlayerBodyScale };
+        if (Material* pm = player_.GetObject3d().GetMaterial()) {
+            pm->lightingMode = 0; // 自機は陰影なしで明るく見せる（敵と見分けやすいように）
+        }
+        revolver_.Initialize(ctx_->object3dCommon, "ws_revolver.obj", { 0.0f, kHeight, 0.0f });
+        if (Material* gm = revolver_.GetObject3d().GetMaterial()) {
+            gm->lightingMode = 0;
+        }
+        reticle_.Initialize(ctx_->object3dCommon, "teapot.obj", { 0.0f, kHeight, 0.0f });
+        reticle_.GetObject3d().GetTransform().Scale = { 0.12f, 0.12f, 0.12f };
+        SetTint(reticle_, 1.0f, 1.0f, 1.0f);
+        SetPbr(player_, 0.6f, 0.0f);
+        SetPbr(revolver_, 0.3f, 0.85f); // 銃は金属のつや
+        break;
     // 弾も敵もマップの見た目も、最初にまとめて作っておく（出すたびに作らない）
-    playerBulletPool_.Initialize(ctx_->object3dCommon, "teapot.obj", kPlayerBulletMax);
-    enemyBulletPool_.Initialize(ctx_->object3dCommon, "teapot.obj", kEnemyBulletMax);
-    brutePool_.Initialize(ctx_->object3dCommon, "ws_man_brute.fbx", kBruteMax);   // ブロックで作った人型（カウボーイハット付き）
-    gunmanPool_.Initialize(ctx_->object3dCommon, "ws_man_gunman.fbx", kGunmanMax);
-    bossPool_.Initialize(ctx_->object3dCommon, "ws_man_boss.fbx", 1);
-    mapView_.Initialize(ctx_->object3dCommon, ctx_->modelManager);
-    doors_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName); // 立方体は mapView_ が登録したものを使う
-    dust_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName);
-    weeds_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName);
-    markPool_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName, kMaxMarks);
-    playerMark_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName, { 0.0f, 0.05f, 0.0f });
-    if (Material* mm = playerMark_.GetObject3d().GetMaterial()) {
-        mm->lightingMode = 0;
+    case 1:
+        playerBulletPool_.Initialize(ctx_->object3dCommon, "teapot.obj", kPlayerBulletMax);
+        enemyBulletPool_.Initialize(ctx_->object3dCommon, "teapot.obj", kEnemyBulletMax);
+        break;
+    case 2:
+        brutePool_.Initialize(ctx_->object3dCommon, "ws_man_brute.fbx", kBruteMax);   // ブロックで作った人型（カウボーイハット付き）
+        brutePool_.ForEachSlot([](GameObject& o) { SetPbr(o, 0.75f, 0.0f); });
+        break;
+    case 3:
+        gunmanPool_.Initialize(ctx_->object3dCommon, "ws_man_gunman.fbx", kGunmanMax);
+        gunmanPool_.ForEachSlot([](GameObject& o) { SetPbr(o, 0.75f, 0.0f); });
+        break;
+    case 4:
+        bossPool_.Initialize(ctx_->object3dCommon, "ws_man_boss.fbx", 1);
+        bossPool_.ForEachSlot([](GameObject& o) { SetPbr(o, 0.7f, 0.0f); });
+        break;
+    case 5:
+        mapView_.Initialize(ctx_->object3dCommon, ctx_->modelManager);
+        break;
+    case 6:
+        doors_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName); // 立方体は mapView_ が登録したものを使う
+        dust_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName);
+        weeds_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName);
+        markPool_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName, kMaxMarks);
+        playerMark_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName, { 0.0f, 0.05f, 0.0f });
+        if (Material* mm = playerMark_.GetObject3d().GetMaterial()) {
+            mm->lightingMode = 0;
+        }
+        SetTint(playerMark_, 0.3f, 1.0f, 0.4f);
+        aimPool_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName, kGunmanMax + kBruteMax + 1); // ガンマン・ごろつき・自機のぶん
+        doors_.SetPbr(0.6f, 0.0f);
+        break;
+    case 7:
+        LoadMap();
+        Reset();
+        break;
+    default:
+        return true;
     }
-    SetTint(playerMark_, 0.3f, 1.0f, 0.4f);
-    aimPool_.Initialize(ctx_->object3dCommon, MapRenderer::kCubeName, kGunmanMax + kBruteMax + 1); // ガンマン・ごろつき・自機のぶん
-
-    LoadMap();
-    Reset();
+    ++initStep_;
+    return initStep_ >= kInitSteps;
 }
 
 void WesternShooterScene::LoadMap()
@@ -192,6 +240,7 @@ void WesternShooterScene::LoadMap()
     std::string error;
     MapData loaded;
     mapFromFile_ = false;
+    mapStamp_ = MapStamp();
 
     if (!loaded.Load(kMapPath, error)) {
         mapMessage_ = std::string("マップを読めなかったので内蔵マップで遊びます: ") + kMapPath + " (" + error + ")";
@@ -233,6 +282,17 @@ void WesternShooterScene::LoadMap()
         MakeFallbackMap(map_);
     }
     mapComplete_ = mapView_.Build(map_);
+
+    // 夜の明かり：建物の正面に、あたたかい灯りを置く（夜になると自動で点く）
+    look_.lamps.Clear();
+    for (const Vector3& spot : mapView_.LampSpots()) {
+        TimedLights::Lamp lamp;
+        lamp.position = spot;
+        lamp.color = { 1.0f, 0.62f, 0.28f };
+        lamp.intensity = 2.8f;
+        lamp.range = 8.0f;
+        look_.lamps.Add(lamp);
+    }
     doors_.Build(map_);
     if (!mapComplete_) {
         mapMessage_ += "（壁・樽が多すぎて、一部が描かれません）";
@@ -241,6 +301,12 @@ void WesternShooterScene::LoadMap()
 
 void WesternShooterScene::Reset()
 {
+    // ポーズ画面は閉じて、項目を整える
+    freeCam_ = false;
+    freeLooking_ = false;
+    pause_.Close();
+    pause_.SetTitle("PAUSED");
+    pause_.SetItems({ "RESUME", "RETRY", "BACK TO TITLE", "FREE CAMERA (DEBUG)" });
     playerBulletPool_.ReleaseAll();
     enemyBulletPool_.ReleaseAll();
     brutePool_.ReleaseAll();
@@ -312,10 +378,53 @@ void WesternShooterScene::Reset()
     }
 }
 
+void WesternShooterScene::Restart()
+{
+    // マップエディタで保存し直したときだけ読み直す（読み直しは重いので、変わっていなければ飛ばす）
+    if (MapStamp() != mapStamp_) {
+        LoadMap();
+    }
+    Reset();
+}
+
+// ---------------------------------------------------------------- 見た目（光・影）
+
+void WesternShooterScene::BeginLook()
+{
+    look_.Begin(ctx_);
+}
+
+void WesternShooterScene::EndLook()
+{
+    look_.End();
+}
+
+void WesternShooterScene::RenderShadowPass()
+{
+    if (!look_.BeginShadowPass()) {
+        return;
+    }
+    ID3D12GraphicsCommandList* commandList = ctx_->dxCommon->GetCommandList();
+    mapView_.DrawShadow(commandList, cameraFocus_.x, cameraFocus_.y + 3.0f, look_.shadowRange + 1.0f);
+    doors_.DrawShadow(commandList);
+    if (state_ != State::GameOver) {
+        player_.GetObject3d().DrawShadow(commandList);
+        if (rollTimer_ <= 0.0f) {
+            revolver_.GetObject3d().DrawShadow(commandList);
+        }
+    }
+    brutePool_.DrawShadow(commandList);
+    gunmanPool_.DrawShadow(commandList);
+    bossPool_.DrawShadow(commandList);
+    look_.EndShadowPass();
+}
+
 // ---------------------------------------------------------------- 毎フレーム
 
 void WesternShooterScene::Update()
 {
+    const auto perfUpdateStart = std::chrono::steady_clock::now();
+    struct PerfEnd { WesternShooterScene* s; std::chrono::steady_clock::time_point t; ~PerfEnd() { s->perfUpdateMs_ = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t).count(); } } perfEnd{ this, perfUpdateStart };
     // マウスの状態をゲーム画面の座標で受け取る（エディタのビューポート上の位置）
     bool mouseDown = false;
 #ifdef USE_IMGUI
@@ -330,6 +439,10 @@ void WesternShooterScene::Update()
 #endif // USE_IMGUI
     input_.SetMouse(mousePixel_, mouseInside_, mouseDown);
     input_.Update(*ctx_->input);
+    // ポーズ：開いている間はゲームを進めない（光・天気・雨だけ動かして、シェーダーの動きを見られるようにする）
+    if (UpdatePause(state_ == State::Playing && cutscene_.kind == CutsceneKind::None)) {
+        return;
+    }
     fx_.Update(kDt); // 揺れ・ヒットストップは実時間で進める
     for (Pillar& p : pillars_) {
         p.age += kDt; // 光の柱は実時間で細くなって消える
@@ -679,6 +792,8 @@ void WesternShooterScene::ResolveHits()
                 }
                 // 倒れなかった：白く光り、血しぶきが散り、少し押される
                 e.hitFlash = kHitFlashTime;
+                e.hitReact = 1.0f; // のけぞる（体の傾きは WesternShooterEnemyAI.cpp が使う）
+                e.hitReactDir = hitDir;
                 if (e.type != EnemyType::Boss || damage > 1) {
                     e.obj->GetObject3d().PlayAnimation("Hit", false, 0.04f); // のけぞる（ボスは隙に当てたときだけ）
                     e.animLock = 0.4f;
@@ -1067,16 +1182,45 @@ void WesternShooterScene::UpdateVisuals()
         }
     }
 
+    PrepareRender();
+}
+
+void WesternShooterScene::PrepareRender()
+{
     ApplyCamera(); // 揺れを足し直す（描くのはこのカメラ）
+    look_.Update(ActiveCamera().GetProjectionMatrix(), { cameraFocus_.x, 0.0f, cameraFocus_.y + 3.0f }); // 光の向きと影の範囲を決めてから、各オブジェクトの行列（LightWVP）を更新する
 
     // 見た目の行列を更新（描く前に必ず）。使用中のものだけ
-    const Matrix4x4& view = camera_.GetViewMatrix();
-    const Matrix4x4& proj = camera_.GetProjectionMatrix();
+    const Matrix4x4& view = ActiveCamera().GetViewMatrix();
+    const Matrix4x4& proj = ActiveCamera().GetProjectionMatrix();
     // カメラに映る範囲だけ更新・描画する（マップ全体の立方体は2000個近いので、毎フレーム全部だと重い）。
     // 範囲はカメラ（高さ17・手前10・縦の画角0.8）から求めた値に余裕を足したもの
-    const float pad = cutscene_.kind != CutsceneKind::None ? 16.0f : 0.0f; // 演出のカメラは回り込むので、広めに描く
-    mapView_.SetVisibleRect(cameraFocus_.x - 28.0f - pad, cameraFocus_.y - 12.0f - pad, cameraFocus_.x + 28.0f + pad, cameraFocus_.y + 22.0f + pad);
+    float pad = cutscene_.kind != CutsceneKind::None ? 10.0f : 0.0f; // 演出のカメラは回り込むので、壁・建物は広めに描く
+    float propPad = 0.0f;
+    Vector2 center = cameraFocus_;
+    if (freeCam_) {
+        // 自由カメラ：カメラの真下を中心に、広めに描く（どこへ飛んでも景色が欠けないように）
+        const Vector3 fp = freeCamera_.GetPosition();
+        center = { fp.x, fp.z };
+        pad = 45.0f;
+        propPad = 45.0f;
+    }
+    mapView_.SetPropRect(center.x - 28.0f - propPad, center.y - 12.0f - propPad, center.x + 28.0f + propPad, center.y + 22.0f + propPad); // 小物は通常は広げない（数が多く、画面の端なら気づかれにくい）
+    mapView_.SetVisibleRect(center.x - 28.0f - pad, center.y - 12.0f - pad, center.x + 28.0f + pad, center.y + 22.0f + pad);
+    // カメラと自機・敵の間にある建物は、半透明にして位置が分かるようにする
+    {
+        occlusionTargets_.clear();
+        occlusionTargets_.push_back(playerPos_);
+        for (const Enemy& oe : enemies_) {
+            if (oe.obj) {
+                occlusionTargets_.push_back(oe.pos);
+            }
+        }
+        mapView_.SetOcclusionTargets(occlusionTargets_);
+    }
+    const auto perfMapStart = std::chrono::steady_clock::now();
     mapView_.Update(view, proj);
+    perfMapMs_ = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - perfMapStart).count();
     doors_.Update(view, proj);
     dust_.Update(view, proj);
     weeds_.Update(view, proj);
@@ -1091,12 +1235,87 @@ void WesternShooterScene::UpdateVisuals()
     brutePool_.Update(view, proj);
     gunmanPool_.Update(view, proj);
     bossPool_.Update(view, proj);
+    RenderShadowPass();
+}
+
+Vector3 WesternShooterScene::WeatherFocus() const
+{
+    if (freeCam_) {
+        const Vector3 p = freeCamera_.GetPosition();
+        return { p.x, 0.0f, p.z };
+    }
+    return { cameraFocus_.x, 0.0f, cameraFocus_.y + 3.0f };
+}
+
+// ポーズの処理。ゲームを止めるべきときは true を返す（このフレームの Update はそこで終わり）
+bool WesternShooterScene::UpdatePause(bool canPause)
+{
+    Input& in = *ctx_->input;
+
+    // 自由カメラ中：メニューは隠れている。開閉キーでメニューへ戻る
+    if (freeCam_) {
+        if (in.TriggerKey(DIK_ESCAPE) || in.TriggerKey(DIK_P) || in.TriggerGamepadButton(7)) {
+            freeCam_ = false;
+            freeLooking_ = false;
+            pause_.Open();
+        }
+        else {
+            Vector2 delta{ 0.0f, 0.0f };
+#ifdef USE_IMGUI
+            {
+                const EditorLayout::ViewportInput& vp = EditorLayout::GetViewportInput();
+                if (vp.rightDown) {
+                    if (freeLooking_) {
+                        delta = { vp.mouse.x - freeMouse_.x, vp.mouse.y - freeMouse_.y };
+                    }
+                    freeMouse_ = vp.mouse;
+                    freeLooking_ = true;
+                }
+                else {
+                    freeLooking_ = false;
+                }
+            }
+#endif // USE_IMGUI
+            freeCamera_.Update(in, delta, kDt);
+        }
+        PrepareRender();
+        return true;
+    }
+
+    const int r = pause_.Update(in, canPause);
+    if (!pause_.IsOpen()) {
+        return false; // 閉じている（閉じたフレームもここ。そのまま再開する）
+    }
+    switch (r) {
+    case 0: // 再開（クリックで決めたとき、そのクリックが弾を撃たないように、このフレームは進めない）
+        pause_.Close();
+        break;
+    case 1: // リトライ
+        Restart(); // Reset の中でメニューも閉じる
+        break;
+    case 2: // タイトルへ
+        pause_.Close();
+        ctx_->sceneManager->ChangeScene<TitleScene>();
+        return true;
+    case 3: // 自由カメラ（シェーダーや光の確認用）
+        pause_.Close();
+        freeCam_ = true;
+        freeLooking_ = false;
+        freeCamera_.StartFrom(camera_);
+        break;
+    default:
+        break;
+    }
+    PrepareRender();
+    return true;
 }
 
 void WesternShooterScene::Draw()
 {
+    const auto perfDrawStart = std::chrono::steady_clock::now();
     ctx_->object3dCommon->PreDraw();
     mapView_.Draw();
+    perfMapDrawMs_ = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - perfDrawStart).count();
     weeds_.Draw();
     doors_.Draw();
     if (state_ != State::GameOver) {
@@ -1117,6 +1336,8 @@ void WesternShooterScene::Draw()
     aimPool_.Draw();
     markPool_.Draw();
     dust_.Draw();
+    look_.DrawWeather(ActiveCamera().GetViewMatrix(), ActiveCamera().GetProjectionMatrix(), WeatherFocus()); // 雨（3D）
+    perfDrawMs_ = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - perfDrawStart).count();
 }
 
 // ---------------------------------------------------------------- 壁・区切り
@@ -1938,6 +2159,10 @@ void WesternShooterScene::DrawImGui()
     ImGui::TextWrapped("%s", mapMessage_.c_str());
     ImGui::Text("マップ: %d x %d  出現点 %zu  区切り %zu", map_.width, map_.height, map_.spawns.size(), map_.gates.size());
     ImGui::Text("FPS %.0f  マップの描画数 %zu", ImGui::GetIO().Framerate, mapView_.VisibleCount());
+    ImGui::Text("処理時間(ms) 更新%.2f  マップ更新%.2f  描画の命令%.2f（うちマップ%.2f）", perfUpdateMs_, perfMapMs_, perfDrawMs_, perfMapDrawMs_);
+    if (ImGui::CollapsingHeader("画質（影・光）")) {
+        look_.DrawImGui();
+    }
     if (currentArea_ == kNoArea) {
         ImGui::Text("区切り: なし（%s）", state_ == State::Cleared ? "全部倒した" : "出現点なし");
     }
@@ -1989,6 +2214,112 @@ void WesternShooterScene::DrawImGui()
     ImGui::Text("敵: %zu  (ごろつき %zu/%zu  ガンマン %zu/%zu)", enemies_.size(), brutePool_.ActiveCount(), brutePool_.Capacity(), gunmanPool_.ActiveCount(), gunmanPool_.Capacity());
     ImGui::Text("自機の弾: %zu/%zu  敵の弾: %zu/%zu", playerBulletPool_.ActiveCount(), playerBulletPool_.Capacity(), enemyBulletPool_.ActiveCount(), enemyBulletPool_.Capacity());
     ImGui::TextDisabled("使用中の数と配列の数が合わなければ、返し忘れ");
+    // ポーズ画面（暗くして項目を描く）。いちばん最後に重ねる
+    pause_.Draw();
+    if (freeCam_) {
+        EditorLayout::DrawViewportText({ WinApp::kGameWidth * 0.5f, 40.0f }, "FREE CAMERA", 34.0f, IM_COL32(120, 220, 255, 255));
+        EditorLayout::DrawViewportText({ WinApp::kGameWidth * 0.5f, WinApp::kGameHeight - 36.0f },
+            "WASD move  Space/C up/down  Z fast X slow  Arrows or RMB drag look  ESC/P back", 22.0f, IM_COL32(200, 230, 240, 255));
+    }
     ImGui::End();
 #endif // USE_IMGUI
 }
+
+// ---------------------------------------------------------------- 使い回しの窓口
+
+std::unique_ptr<WesternShooterScene>& WesternShooterEntry::Shared()
+{
+    static std::unique_ptr<WesternShooterScene> instance;
+    return instance;
+}
+
+namespace {
+    bool g_ready = false; // 読み込みが全部終わったか
+    LoadQueue g_queue;    // 読み込みの段階（エンジンの部品）。登録は最初の PreloadStep / Preload で1回だけ
+
+    // 読み込みの段階を登録する（シーンを作る → 初期化の各段階）
+    void RegisterLoadSteps(SceneContext* context, std::unique_ptr<WesternShooterScene>& shared)
+    {
+        if (!g_queue.IsEmpty()) {
+            return;
+        }
+        g_queue.Add("Create scene", [context, &shared] {
+            shared = std::make_unique<WesternShooterScene>();
+            shared->SetContext(context);
+        });
+        for (int i = 0; i < WesternShooterScene::kInitSteps; ++i) {
+            g_queue.Add("Init", [&shared] { shared->InitStep(); });
+        }
+    }
+}
+
+bool WesternShooterEntry::PreloadStep(SceneContext* context)
+{
+    if (g_ready) {
+        return true;
+    }
+    RegisterLoadSteps(context, Shared());
+    if (g_queue.Tick(context->dxCommon)) {
+        g_ready = true;
+        Logger::Log("WesternShooter preloaded");
+    }
+    return g_ready;
+}
+
+bool WesternShooterEntry::IsReady()
+{
+    return g_ready;
+}
+
+float WesternShooterEntry::Progress()
+{
+    return g_ready ? 1.0f : g_queue.Progress();
+}
+
+void WesternShooterEntry::DrawLoading(float screenW, float screenH)
+{
+    if (!g_ready) {
+        g_queue.DrawNowLoading(screenW, screenH);
+    }
+}
+
+void WesternShooterEntry::Preload(SceneContext* context)
+{
+    if (g_ready) {
+        return;
+    }
+    RegisterLoadSteps(context, Shared());
+    g_queue.RunAll(context->dxCommon); // 待たずに全部読む
+    g_ready = true;
+    Logger::Log("WesternShooter preloaded");
+}
+
+void WesternShooterEntry::Release()
+{
+    Shared().reset();
+    g_queue.Clear();
+    g_ready = false;
+}
+
+void WesternShooterEntry::Initialize()
+{
+    if (!g_ready) {
+        // まだ読み込んでいなければ（ロード画面を通っていないとき）、ここで一気に読む
+        Preload(ctx_);
+    }
+    std::unique_ptr<WesternShooterScene>& s = Shared();
+    s->SetContext(ctx_);
+    s->Restart();
+    s->BeginLook();
+}
+
+void WesternShooterEntry::Finalize()
+{
+    if (Shared()) {
+        Shared()->EndLook();
+    }
+}
+
+void WesternShooterEntry::Update() { Shared()->Update(); }
+void WesternShooterEntry::Draw() { Shared()->Draw(); }
+void WesternShooterEntry::DrawImGui() { Shared()->DrawImGui(); }

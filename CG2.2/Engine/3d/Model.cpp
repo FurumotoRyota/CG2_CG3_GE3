@@ -16,6 +16,7 @@ void Model::Initialize(DirectXCommon* dxCommon, TextureManager* textureManager, 
 
     subMeshes_.clear();
     subMeshes_.resize(modelData.meshes.size());
+    cpuMeshes_.clear();
 
     // 全頂点から外接ボックスを求める
     bool hasVertex = false;
@@ -67,6 +68,9 @@ void Model::Initialize(DirectXCommon* dxCommon, TextureManager* textureManager, 
             texturePath = it->second.textureFilePath;
         }
         subMesh.textureHandle = textureManager_->Load(texturePath);
+        if (!skin_) {
+            cpuMeshes_.push_back({ mesh.vertices, texturePath }); // まとめ描きのために頂点を残す
+        }
     }
 }
 

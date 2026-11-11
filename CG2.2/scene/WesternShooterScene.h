@@ -15,6 +15,11 @@
 #include <vector>
 
 #include "scene/Scene.h"
+#include "base/ShaderTypes.h"
+#include "3d/PostProcess.h"
+#include "3d/RenderLook.h"
+#include "camera/FreeCamera.h"
+#include "core/PauseMenu.h"
 #include "../game/GameObject.h"
 #include "../game/GameObjectPool.h"
 #include "../game/DustBurst.h"
@@ -27,6 +32,7 @@
 #include "camera/CameraEffects.h"
 #include "input/GameInput.h"
 #include "math/Vector2.h"
+#include <memory>
 
 class WesternShooterScene : public Scene
 {
@@ -35,6 +41,18 @@ public:
     void Update() override;
     void Draw() override;
     void DrawImGui() override;
+
+    // 起動済みのシーンを、遊び直せる状態に戻す（Rキーのやり直しと同じ。マップのファイルが変わっていたら読み直す）
+    void Restart();
+
+    // このシーンにいる間だけ、共通の光源（向き・色・影の設定）を西部の夕方用にする。出るときに元へ戻す
+    void BeginLook();
+    void EndLook();
+
+    // 起動時の準備を細かく分けて1回に1段階ずつ進める（ロード画面を動かしたまま読み込むため）。全部終わったら true
+    bool InitStep();
+    static constexpr int kInitSteps = 8;
+    int GetInitStep() const { return initStep_; }
 
 private:
     // 地面はXZ平面。動きと判定は (x, z) の2次元で扱い、高さ(y)は固定にする
@@ -101,6 +119,8 @@ private:
         bool prevValid = false;
         float walkPhase = 0.0f;        // 歩きの周期（足の運びのかわり）
         float walkAmt = 0.0f;          // 歩きのゆれの大きさ（0=立っている 1=普通に歩く）
+        float hitReact = 0.0f;         // 弾が当たった直後のけぞる強さ（当たった瞬間が 1。0 まで戻る）
+        Vector2 hitReactDir{ 0.0f, 1.0f }; // 当たった弾の進む向き
         float animLock = 0.0f;         // 撃つ・やられのアニメーションを流している残り時間（その間は歩きなどに切り替えない）
 
         // --- ボス ---
@@ -198,6 +218,10 @@ private:
     void UpdateCamera(float dt);        // 自機を追って、カメラを合わせる
     void ApplyCamera();                 // カメラの位置を決める（揺れを足す）
     void UpdateVisuals();               // カメラと見た目の行列
+    void PrepareRender();               // 描く前の準備（光・行列・影）。ポーズ中もこれだけは進める
+    bool UpdatePause(bool canPause);    // ポーズの開閉とメニューの処理。ゲームを止めるべきときは true
+    const Camera& ActiveCamera() const { return freeCam_ ? static_cast<const Camera&>(freeCamera_) : camera_; }
+    Vector3 WeatherFocus() const;       // 雨を降らせる中心（ふだんは見ている点、自由カメラ中はカメラの下）
 
     // --- 敵のAI（WesternShooterEnemyAI.cpp） ---
     void AssignSquad(AiShared& shared, float dt);   // 仲間を呼ぶ・役割を決める・突っ込む合図を出す
@@ -260,6 +284,17 @@ private:
     Tumbleweeds weeds_;     // 風に転がるタンブルウィード（見た目だけ）
     std::string mapMessage_;             // マップの読み込み結果（画面に出す）
     bool mapFromFile_ = false;
+    // 見た目（影・環境光）。ImGuiの「画質」で変えられる
+    void RenderShadowPass();  // 影の深度テクスチャを描く（更新のあと、描画より前）。影を落とす物を列挙するだけ
+    PauseMenu pause_;               // ポーズ画面（エンジン側の部品）
+    FreeCamera freeCamera_;         // ポーズ中のデバッグ用の自由カメラ
+    bool freeCam_ = false;          // 自由カメラで見ている間 true（メニューは隠れる）
+    bool freeLooking_ = false;      // 右ドラッグで向きを変えている最中
+    Vector2 freeMouse_{ 0.0f, 0.0f };
+    RenderLook look_;               // 見た目一式（影・時間帯・環境光・ポストエフェクト）。エンジン側の機能
+
+    int initStep_ = 0;                   // InitStep() で次にやる段階
+    long long mapStamp_ = 0;             // 最後に読んだときのマップファイルの更新時刻（変わったら読み直す）
     bool mapComplete_ = true;            // 壁・樽の見た目が全部作れたか
 
     std::vector<SpawnState> spawnStates_;
@@ -297,6 +332,11 @@ private:
     float playerWalkAmt_ = 0.0f;    // 自機の歩きのゆれの大きさ
     float playerAnimLock_ = 0.0f;   // 撃つ・やられのアニメーションを流している残り時間
     float hurt_ = 0.0f;             // 撃たれた直後ののけぞり（撃たれた瞬間が 1。0 まで戻る）
+    float perfUpdateMs_ = 0.0f;     // 処理時間の目安（デバッグ表示用）
+    float perfMapMs_ = 0.0f;
+    float perfDrawMs_ = 0.0f;
+    float perfMapDrawMs_ = 0.0f;
+    std::vector<Vector2> occlusionTargets_; // 建物を半透明にするための、自機・敵の位置
     Vector3 handPos_{ 0.0f, 1.0f, 0.0f };   // 右手の位置（銃を置く場所）
     float recoil_ = 0.0f;           // 撃った反動（撃った瞬間が 1。0 まで戻る）
     GameObject playerMark_;         // 自機の足もとの印（敵と見分けるため）
@@ -336,4 +376,30 @@ private:
     float endTimer_ = 0.0f;      // ゲームオーバー・クリアになってからの時間（結果画面へ進むまで）
     bool showAiColors_ = true;   // 敵の行動を色で見せる（ImGuiで切り替え）
     State state_ = State::Playing;
+};
+
+/// <summary>
+/// 西部シューティングの「使い回し」窓口。重い準備（モデル・弾や敵のプール・マップの見た目）は
+/// アプリ起動時に Preload() で一度だけ行い、タイトル→ゲーム、リトライでは作り直さずに使い回す。
+/// 使い方: sceneManager->ChangeScene<WesternShooterEntry&gt;();（WesternShooterScene を直接 ChangeScene しないこと）
+/// </summary>
+class WesternShooterEntry : public Scene
+{
+public:
+    static void Preload(SceneContext* context); // 起動時に1回だけ、全部作る
+    static void Release();                      // アプリ終了時に解放する（GPUより先に呼ぶ）
+    // 起動時の読み込みを1段階だけ進める（ロード画面から毎フレーム呼ぶ）。全部終わったら true
+    static bool PreloadStep(SceneContext* context);
+    static bool IsReady();                      // 読み込みが終わっているか
+    static float Progress();                    // 読み込みの進み具合（0〜1）
+    static void DrawLoading(float screenW, float screenH); // 「NOW LOADING」を出す（読み込み中だけ。エンジンの LoadQueue の表示）
+
+    void Initialize() override;                 // まだ作っていなければ作る。あれば Restart() だけ
+    void Update() override;
+    void Draw() override;
+    void DrawImGui() override;
+    void Finalize() override; // 光源だけ元に戻す。中身は次に遊ぶときまで残す
+
+private:
+    static std::unique_ptr<WesternShooterScene>& Shared();
 };

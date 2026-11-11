@@ -12,6 +12,7 @@ class SpriteCommon;
 class ParticleSystem;
 class InstancedPlaneCommon;
 class SceneManager;
+class PostProcess;
 
 /// <summary>
 /// シーンが使うエンジン機能への参照をまとめたもの（Frameworkが所有・作成する）
@@ -30,4 +31,5 @@ struct SceneContext
     ParticleSystem* particleSystem = nullptr;
     InstancedPlaneCommon* instancedPlaneCommon = nullptr;
     SceneManager* sceneManager = nullptr;
+    PostProcess* postProcess = nullptr;
 };

@@ -191,7 +191,7 @@ void BasicPipeline::Initialize(DirectXCommon* dxCommon, bool useDepth)
         pipelineStateDesc.DepthStencilState = depthStencilDesc;
         pipelineStateDesc.DSVFormat = DirectXCommon::kDsvFormat;
         pipelineStateDesc.NumRenderTargets = 1;
-        pipelineStateDesc.RTVFormats[0] = DirectXCommon::kRtvFormat;
+        pipelineStateDesc.RTVFormats[0] = DirectXCommon::kSceneFormat;
         pipelineStateDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         pipelineStateDesc.SampleDesc.Count = 1;
         pipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;

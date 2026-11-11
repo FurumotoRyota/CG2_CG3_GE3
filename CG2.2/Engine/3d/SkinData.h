@@ -247,7 +247,14 @@ inline Matrix4x4 BoneMatrix(const SkinMesh& mesh, int bone, const std::vector<Ma
 inline void SkinVertices(const SkinMesh& mesh, const std::vector<Matrix4x4>& globals, VertexData* out)
 {
     const size_t boneCount = mesh.boneJoint.size();
-    std::vector<Matrix4x4> bm(boneCount);
+    // 骨の行列（毎フレーム呼ばれるので、メモリの確保を避けて固定の置き場を使う。骨が多いモデルだけ確保する）
+    Matrix4x4 fixedMatrices[32];
+    std::vector<Matrix4x4> dynamicMatrices;
+    Matrix4x4* bm = fixedMatrices;
+    if (boneCount > 32) {
+        dynamicMatrices.resize(boneCount);
+        bm = dynamicMatrices.data();
+    }
     for (size_t b = 0; b < boneCount; ++b) {
         bm[b] = BoneMatrix(mesh, static_cast<int>(b), globals);
     }

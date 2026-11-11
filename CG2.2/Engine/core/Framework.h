@@ -8,6 +8,7 @@
 #include "../3d/ModelManager.h"
 #include "../3d/Object3dCommon.h"
 #include "../3d/InstancedPlanes.h"
+#include "../3d/PostProcess.h"
 #include "../2d/SpriteCommon.h"
 #include "../input/Input.h"
 #include "../audio/Audio.h"
@@ -49,6 +50,7 @@ protected:
     SpriteCommon spriteCommon_;
     ParticleSystem particleSystem_;
     InstancedPlaneCommon instancedPlaneCommon_;
+    PostProcess postProcess_;
     ImGuiManager imguiManager_;
     SceneManager sceneManager_;
 

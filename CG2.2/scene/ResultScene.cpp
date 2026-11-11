@@ -31,7 +31,7 @@ void ResultScene::Update()
         ctx_->sceneManager->ChangeScene<TitleScene>();
     }
     else if (ctx_->input->TriggerKey(DIK_R) || ctx_->input->TriggerGamepadButton(3)) {
-        ctx_->sceneManager->ChangeScene<WesternShooterScene>();
+        ctx_->sceneManager->ChangeScene<WesternShooterEntry>();
     }
 }
 

@@ -114,6 +114,22 @@ void SaloonDoors::Update(const Matrix4x4& view, const Matrix4x4& proj)
     leafPool_.Update(view, proj);
 }
 
+void SaloonDoors::SetPbr(float rough, float metal)
+{
+    leafPool_.ForEachSlot([&](GameObject& o) {
+        if (Material* m = o.GetObject3d().GetMaterial()) {
+            m->specularMode = 3;
+            m->roughness = rough;
+            m->metallic = metal;
+        }
+    });
+}
+
+void SaloonDoors::DrawShadow(ID3D12GraphicsCommandList* commandList)
+{
+    leafPool_.DrawShadow(commandList);
+}
+
 void SaloonDoors::Draw()
 {
     leafPool_.Draw();

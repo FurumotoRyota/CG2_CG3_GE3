@@ -174,9 +174,17 @@ Matrix4x4 ShadowMap::ComputeLightViewProjection(const Vector3& dir, const Vector
     r = { r.x / rl, r.y / rl, r.z / rl };
     const Vector3 u{ f.y * r.z - f.z * r.y, f.z * r.x - f.x * r.z, f.x * r.y - f.y * r.x };
 
+    // 影テクスチャの1マスの大きさ（ワールド）。中心をこの刻みに合わせて、カメラが動いても影の縁がちらつかないようにする
+    const float texel = range * 2.0f / static_cast<float>(kSize);
+    const float cr = center.x * r.x + center.y * r.y + center.z * r.z;
+    const float cu = center.x * u.x + center.y * u.y + center.z * u.z;
+    const float dr = std::fmod(cr, texel);
+    const float du = std::fmod(cu, texel);
+    const Vector3 snapped{ center.x - r.x * dr - u.x * du, center.y - r.y * dr - u.y * du, center.z - r.z * dr - u.z * du };
+
     // 光源の位置：範囲の中心から光と反対側へ引いた位置
     const float distance = range * 1.5f;
-    const Vector3 pos{ center.x - f.x * distance, center.y - f.y * distance, center.z - f.z * distance };
+    const Vector3 pos{ snapped.x - f.x * distance, snapped.y - f.y * distance, snapped.z - f.z * distance };
 
     Matrix4x4 view = Matrix4x4::MakeIdentity4x4();
     view.m[0][0] = r.x; view.m[0][1] = u.x; view.m[0][2] = f.x;

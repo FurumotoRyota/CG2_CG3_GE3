@@ -138,6 +138,16 @@ namespace WesternShooter
         }
     }
 
+    // 材質をPBR（太陽のつやと空の映り込み）にする。rough 0:鏡面〜1:ざらざら、metal 0:非金属〜1:金属
+    inline void SetPbr(GameObject& obj, float rough, float metal)
+    {
+        if (Material* m = obj.GetObject3d().GetMaterial()) {
+            m->specularMode = 3;
+            m->roughness = rough;
+            m->metallic = metal;
+        }
+    }
+
     inline void Place(GameObject& obj, const Vector2& pos)
     {
         obj.GetObject3d().GetTransform().Translate = { pos.x, kHeight, pos.y };

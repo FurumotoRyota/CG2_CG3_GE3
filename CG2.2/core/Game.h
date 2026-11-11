@@ -8,6 +8,7 @@ class Game : public Framework
 {
 protected:
     void Initialize() override;
+    void Finalize() override;
     void Update() override;
     void DrawImGui() override;
 

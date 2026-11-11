@@ -131,6 +131,25 @@ public:
         }
     }
 
+    // 使用中のものだけ、影の深度を描く（ShadowMap::Begin と End の間で呼ぶ）
+    void DrawShadow(ID3D12GraphicsCommandList* commandList)
+    {
+        for (Slot& slot : slots_) {
+            if (slot.active) {
+                slot.obj->GetObject3d().DrawShadow(commandList);
+            }
+        }
+    }
+
+    // 使っていない枠も含めて全部に渡す（作った直後に、材質など最初の設定をまとめて入れる用）
+    template <class Func>
+    void ForEachSlot(Func&& func)
+    {
+        for (Slot& slot : slots_) {
+            func(*slot.obj);
+        }
+    }
+
     size_t Capacity() const { return slots_.size(); }
     size_t ActiveCount() const { return activeCount_; }
     bool IsFull() const { return freeList_.empty(); }

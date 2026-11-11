@@ -28,7 +28,9 @@ void DirectXCommon::Initialize(WinApp* winApp)
     InitializeRenderTargetViews();
     InitializeDepthStencil();
     InitializeOffscreenTarget();
+    InitializeSceneTarget();
     InitializeFence();
+    InitializeGpuTimer();
     InitializeViewportScissor();
     InitializeDxc();
 }
@@ -158,7 +160,7 @@ void DirectXCommon::InitializeSwapChain()
 
 void DirectXCommon::InitializeDescriptorHeaps()
 {
-    rtvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kSwapChainBufferCount + 1, false);
+    rtvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kSwapChainBufferCount + 2, false);
     srvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kSrvHeapSize, true);
     dsvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
 
@@ -189,7 +191,7 @@ void DirectXCommon::InitializeDepthStencil()
     resourceDesc.Height = WinApp::kGameHeight;
     resourceDesc.MipLevels = 1;
     resourceDesc.DepthOrArraySize = 1;
-    resourceDesc.Format = kDsvFormat;
+    resourceDesc.Format = DXGI_FORMAT_R24G8_TYPELESS; // 深度を描く(D24_S8)のと、ポストエフェクトで読む(R24_X8)の両方に使う
     resourceDesc.SampleDesc.Count = 1;
     resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
@@ -253,6 +255,62 @@ void DirectXCommon::InitializeOffscreenTarget()
     device_->CreateRenderTargetView(offscreenResource_.Get(), &rtvDesc, offscreenRtvHandle_);
 }
 
+void DirectXCommon::InitializeSceneTarget()
+{
+    D3D12_RESOURCE_DESC resourceDesc{};
+    resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resourceDesc.Width = WinApp::kGameWidth;
+    resourceDesc.Height = WinApp::kGameHeight;
+    resourceDesc.MipLevels = 1;
+    resourceDesc.DepthOrArraySize = 1;
+    resourceDesc.Format = kSceneFormat;
+    resourceDesc.SampleDesc.Count = 1;
+    resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    D3D12_HEAP_PROPERTIES heapProperties{};
+    heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    // クリア色は BeginSceneRender の ClearRenderTargetView と同じ値にする
+    D3D12_CLEAR_VALUE clearValue{};
+    clearValue.Format = kSceneFormat;
+    clearValue.Color[0] = 0.1f;
+    clearValue.Color[1] = 0.25f;
+    clearValue.Color[2] = 0.5f;
+    clearValue.Color[3] = 1.0f;
+
+    HRESULT hr = device_->CreateCommittedResource(
+        &heapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clearValue,
+        IID_PPV_ARGS(sceneResource_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
+    sceneRtvHandle_ = GetCPUDescriptorHandle(rtvDescriptorHeap_.Get(), descriptorSizeRTV_, kSwapChainBufferCount + 1);
+    D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
+    rtvDesc.Format = kSceneFormat;
+    rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    device_->CreateRenderTargetView(sceneResource_.Get(), &rtvDesc, sceneRtvHandle_);
+}
+
+void DirectXCommon::CreateSceneSrv(D3D12_CPU_DESCRIPTOR_HANDLE destHandle)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = kSceneFormat;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Texture2D.MipLevels = 1;
+    device_->CreateShaderResourceView(sceneResource_.Get(), &srvDesc, destHandle);
+}
+
+void DirectXCommon::CreateDepthSrv(D3D12_CPU_DESCRIPTOR_HANDLE destHandle)
+{
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; // 深度の部分だけを読む
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Texture2D.MipLevels = 1;
+    device_->CreateShaderResourceView(depthStencilResource_.Get(), &srvDesc, destHandle);
+}
+
 void DirectXCommon::CreateOffscreenSrv(D3D12_CPU_DESCRIPTOR_HANDLE destHandle)
 {
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
@@ -270,6 +328,66 @@ void DirectXCommon::InitializeFence()
 
     fenceEvent_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     assert(fenceEvent_ != nullptr);
+}
+
+void DirectXCommon::InitializeGpuTimer()
+{
+    // タイムスタンプを入れる箱と、結果をCPUで読むための箱
+    D3D12_QUERY_HEAP_DESC qd{};
+    qd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    qd.Count = kMaxGpuMarks;
+    HRESULT hr = device_->CreateQueryHeap(&qd, IID_PPV_ARGS(queryHeap_.GetAddressOf()));
+    if (FAILED(hr)) {
+        queryHeap_.Reset();
+        return; // 計測できない環境では何もしない
+    }
+    D3D12_HEAP_PROPERTIES hp{};
+    hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC rd{};
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rd.Width = sizeof(uint64_t) * kMaxGpuMarks;
+    rd.Height = 1;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels = 1;
+    rd.SampleDesc.Count = 1;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    hr = device_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(queryReadback_.GetAddressOf()));
+    if (FAILED(hr)) {
+        queryHeap_.Reset();
+        return;
+    }
+    commandQueue_->GetTimestampFrequency(&gpuFrequency_);
+    GpuMark("frame");
+}
+
+void DirectXCommon::GpuMark(const char* name)
+{
+    if (!queryHeap_ || gpuMarkCount_ >= kMaxGpuMarks) {
+        return;
+    }
+    commandList_->EndQuery(queryHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, gpuMarkCount_);
+    gpuMarkNames_[gpuMarkCount_] = name;
+    ++gpuMarkCount_;
+}
+
+void DirectXCommon::ReadGpuTimings()
+{
+    // 印と印の間のGPU時間を出す（GPUの処理が終わったあとに呼ぶ）
+    gpuTimings_.clear();
+    if (!queryReadback_ || gpuMarkCount_ < 2 || gpuFrequency_ == 0) {
+        return;
+    }
+    D3D12_RANGE range{ 0, sizeof(uint64_t) * gpuMarkCount_ };
+    uint64_t* data = nullptr;
+    if (FAILED(queryReadback_->Map(0, &range, reinterpret_cast<void**>(&data)))) {
+        return;
+    }
+    for (uint32_t i = 1; i < gpuMarkCount_; ++i) {
+        const float ms = static_cast<float>(static_cast<double>(data[i] - data[i - 1]) * 1000.0 / static_cast<double>(gpuFrequency_));
+        gpuTimings_.push_back({ gpuMarkNames_[i], ms });
+    }
+    D3D12_RANGE written{ 0, 0 };
+    queryReadback_->Unmap(0, &written);
 }
 
 void DirectXCommon::InitializeViewportScissor()
@@ -332,20 +450,30 @@ void DirectXCommon::PreDraw()
 
 void DirectXCommon::BeginSceneRender()
 {
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    barrier.Transition.pResource = offscreenResource_.Get();
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    commandList_->ResourceBarrier(1, &barrier);
+    D3D12_RESOURCE_BARRIER barriers[2]{};
+    UINT count = 0;
+    barriers[count].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[count].Transition.pResource = sceneResource_.Get();
+    barriers[count].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barriers[count].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    barriers[count].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    ++count;
+    if (depthReadable_) {
+        barriers[count].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[count].Transition.pResource = depthStencilResource_.Get();
+        barriers[count].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barriers[count].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        barriers[count].Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        ++count;
+        depthReadable_ = false;
+    }
+    commandList_->ResourceBarrier(count, barriers);
 
     D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
-    commandList_->OMSetRenderTargets(1, &offscreenRtvHandle_, FALSE, &dsvHandle);
+    commandList_->OMSetRenderTargets(1, &sceneRtvHandle_, FALSE, &dsvHandle);
 
     float clearColor[] = { 0.1f, 0.25f, 0.5f, 1.0f };
-    commandList_->ClearRenderTargetView(offscreenRtvHandle_, clearColor, 0, nullptr);
+    commandList_->ClearRenderTargetView(sceneRtvHandle_, clearColor, 0, nullptr);
     commandList_->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
     commandList_->RSSetViewports(1, &viewport_);
@@ -357,14 +485,62 @@ void DirectXCommon::BeginSceneRender()
 
 void DirectXCommon::EndSceneRender()
 {
+    // HDR画面と深度を、ポストエフェクトが読める状態にする
+    D3D12_RESOURCE_BARRIER barriers[2]{};
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[0].Transition.pResource = sceneResource_.Get();
+    barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[1].Transition.pResource = depthStencilResource_.Get();
+    barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+    barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    commandList_->ResourceBarrier(2, barriers);
+    depthReadable_ = true;
+}
+
+void DirectXCommon::BeginPostTarget()
+{
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+#ifdef USE_IMGUI
+    // ImGuiのビューポートに貼るゲーム画面（オフスクリーン）へ書き出す
+    barrier.Transition.pResource = offscreenResource_.Get();
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+#else
+    backBufferIndex_ = swapChain_->GetCurrentBackBufferIndex();
+    barrier.Transition.pResource = swapChainResources_[backBufferIndex_].Get();
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+#endif
+    commandList_->ResourceBarrier(1, &barrier);
+}
+
+void DirectXCommon::EndPostTarget()
+{
+#ifdef USE_IMGUI
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Transition.pResource = offscreenResource_.Get();
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     commandList_->ResourceBarrier(1, &barrier);
+#endif
+    // ImGuiなしのときは、バックバッファのまま PostDraw で Present の状態へ戻す
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE DirectXCommon::GetPostTargetRtv() const
+{
+#ifdef USE_IMGUI
+    return offscreenRtvHandle_;
+#else
+    return rtvHandles_[backBufferIndex_];
+#endif
 }
 
 void DirectXCommon::BeginBackBuffer()
@@ -400,6 +576,11 @@ void DirectXCommon::PostDraw()
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
     commandList_->ResourceBarrier(1, &barrier);
 
+    GpuMark("imgui"); // ここまでが、ポスト処理のあとのImGui
+    if (queryHeap_ && gpuMarkCount_ > 0) {
+        commandList_->ResolveQueryData(queryHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, gpuMarkCount_, queryReadback_.Get(), 0);
+    }
+
     HRESULT hr = commandList_->Close();
     assert(SUCCEEDED(hr));
 
@@ -410,6 +591,7 @@ void DirectXCommon::PostDraw()
     assert(SUCCEEDED(hr));
 
     WaitForGPU();
+    ReadGpuTimings();
     ResetCommandList();
 }
 
@@ -447,6 +629,10 @@ void DirectXCommon::ResetCommandList()
 
     // GPU処理は完了済みなので中間リソースを解放してよい
     intermediateResources_.clear();
+
+    // 計測の印は、新しいフレームの先頭からやり直す
+    gpuMarkCount_ = 0;
+    GpuMark("frame");
 }
 
 //==================================================
@@ -541,7 +727,7 @@ void DirectXCommon::UploadTextureData(ID3D12Resource* texture, const DirectX::Sc
     intermediateResources_.push_back(intermediateResource);
 }
 
-DirectXCommon::ComPtr<IDxcBlob> DirectXCommon::CompileShader(const std::wstring& filePath, const wchar_t* profile)
+DirectXCommon::ComPtr<IDxcBlob> DirectXCommon::CompileShader(const std::wstring& filePath, const wchar_t* profile, const wchar_t* entry)
 {
     Logger::Log(ConvertString(std::format(L"Begin CompileShader, path:{}, profile:{}", filePath, profile)));
 
@@ -556,10 +742,10 @@ DirectXCommon::ComPtr<IDxcBlob> DirectXCommon::CompileShader(const std::wstring&
 
     LPCWSTR arguments[] = {
         filePath.c_str(),
-        L"-E", L"main",
+        L"-E", entry,
         L"-T", profile,
         L"-Zi", L"-Qembed_debug",
-        L"-Od",
+        L"-O3", // 最適化する（-Od だとシェーダーが遅い。デバッグでステップ実行したいときだけ -Od に戻す）
         L"-Zpr",
     };
 

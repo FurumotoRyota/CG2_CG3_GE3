@@ -23,6 +23,12 @@ void Game::Initialize()
     sceneManager_.ChangeScene<StartupScene>();
 }
 
+void Game::Finalize()
+{
+    WesternShooterEntry::Release(); // 使い回していたシーンを、GPUより先に解放する
+    Framework::Finalize();
+}
+
 void Game::Update()
 {
     // BGMのON/OFF切り替え（Mキー or ゲームパッドBボタン）
@@ -66,7 +72,7 @@ void Game::DrawImGui()
                 sceneManager_.ChangeScene<TitleScene>();
             }
             if (ImGui::MenuItem("西部シューティング")) {
-                sceneManager_.ChangeScene<WesternShooterScene>();
+                sceneManager_.ChangeScene<WesternShooterEntry>();
             }
             if (ImGui::MenuItem("マップエディタ")) {
                 sceneManager_.ChangeScene<MapEditorScene>();

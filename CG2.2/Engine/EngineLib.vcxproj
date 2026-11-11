@@ -252,6 +252,10 @@
     <ClCompile Include="3d\EnvironmentMap.cpp" />
     <ClCompile Include="3d\GeometryPipeline.cpp" />
     <ClCompile Include="3d\Model.cpp" />
+    <ClCompile Include="3d\PostProcess.cpp" />
+    <ClCompile Include="3d\RenderLook.cpp" />
+    <ClCompile Include="3d\RainSystem.cpp" />
+    <ClCompile Include="3d\StaticBatcher.cpp" />
     <ClCompile Include="3d\ShadowMap.cpp" />
     <ClCompile Include="3d\ModelLoader.cpp" />
     <ClCompile Include="3d\ModelManager.cpp" />
@@ -270,7 +274,10 @@
     <ClCompile Include="base\WinApp.cpp" />
     <ClCompile Include="camera\Camera.cpp" />
     <ClCompile Include="camera\DebugCamera.cpp" />
+    <ClCompile Include="camera\FreeCamera.cpp" />
     <ClCompile Include="core\Framework.cpp" />
+    <ClCompile Include="core\LoadQueue.cpp" />
+    <ClCompile Include="core\PauseMenu.cpp" />
     <ClCompile Include="editor\EditorLayout.cpp" />
     <ClCompile Include="editor\ViewportPicking.cpp" />
     <ClCompile Include="input\Input.cpp" />
@@ -288,6 +295,13 @@
     <ClInclude Include="3d\EnvironmentMap.h" />
     <ClInclude Include="3d\GeometryPipeline.h" />
     <ClInclude Include="3d\Model.h" />
+    <ClInclude Include="3d\PostProcess.h" />
+    <ClInclude Include="3d\TimeOfDay.h" />
+    <ClInclude Include="3d\TimedLights.h" />
+    <ClInclude Include="3d\RenderLook.h" />
+    <ClInclude Include="3d\RainSystem.h" />
+    <ClInclude Include="3d\StaticBatcher.h" />
+    <ClInclude Include="3d\CullingList.h" />
     <ClInclude Include="3d\ShadowMap.h" />
     <ClInclude Include="3d\ModelData.h" />
     <ClInclude Include="3d\ModelLoader.h" />
@@ -310,7 +324,10 @@
     <ClInclude Include="base\WinApp.h" />
     <ClInclude Include="camera\Camera.h" />
     <ClInclude Include="camera\DebugCamera.h" />
+    <ClInclude Include="camera\FreeCamera.h" />
     <ClInclude Include="core\Framework.h" />
+    <ClInclude Include="core\LoadQueue.h" />
+    <ClInclude Include="core\PauseMenu.h" />
     <ClInclude Include="editor\EditorLayout.h" />
     <ClInclude Include="editor\ViewportPicking.h" />
     <ClInclude Include="input\Input.h" />

@@ -3,6 +3,7 @@
 #include <wrl/client.h>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "../3d/ModelData.h"
@@ -29,6 +30,14 @@ public:
     // 形だけ描く（影の描画パス用。テクスチャは設定しない）
     void DrawGeometry(ID3D12GraphicsCommandList* commandList, const D3D12_VERTEX_BUFFER_VIEW* skinnedViews = nullptr) const;
 
+    // 形の元データ（まとめ描き用に、頂点をCPUにも残してある。骨つきモデルは空）
+    struct CpuMesh
+    {
+        std::vector<VertexData> vertices;
+        std::string texturePath;
+    };
+    const std::vector<CpuMesh>& GetCpuMeshes() const { return cpuMeshes_; }
+
     // 骨つきモデルか（FBX などで骨とアニメーションを持つ）
     bool IsSkinned() const { return skin_ != nullptr; }
     const SkinData* GetSkin() const { return skin_.get(); }
@@ -50,6 +59,7 @@ private:
     TextureManager* textureManager_ = nullptr;
     std::shared_ptr<const SkinData> skin_;
     std::vector<SubMesh> subMeshes_;
+    std::vector<CpuMesh> cpuMeshes_;
     Vector3 boundsMin_{ -0.5f, -0.5f, -0.5f };
     Vector3 boundsMax_{ 0.5f, 0.5f, 0.5f };
 };

@@ -29,7 +29,8 @@ public:
 
     static constexpr uint32_t kSwapChainBufferCount = 2;
     static constexpr uint32_t kSrvHeapSize = 128;
-    static constexpr DXGI_FORMAT kRtvFormat = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    static constexpr DXGI_FORMAT kRtvFormat = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;   // 最終の画面（ゲーム画面のコピー・バックバッファ）
+    static constexpr DXGI_FORMAT kSceneFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;   // シーンを描く画面（HDR。ポストエフェクトで最終の画面へ直す）
     static constexpr DXGI_FORMAT kDsvFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
     void Initialize(WinApp* winApp);
@@ -44,8 +45,18 @@ public:
     // エディタ表示用（ゲーム画面をオフスクリーンに描いてImGuiのパネルに貼る）
     // 流れ: BeginSceneRender → シーン描画 → EndSceneRender → BeginBackBuffer → ImGui描画 → PostDraw
     //--------------------------------------------------
-    void BeginSceneRender();  // ゲーム画面(オフスクリーン)への描画開始（クリア・ビューポート設定込み）
-    void EndSceneRender();    // 描画終了（ImGuiでテクスチャとして読める状態にする）
+    // シーンは常にHDRの画面(+深度)に描く。終わると、ポストエフェクトが読める状態になる
+    void BeginSceneRender();  // シーン(HDR)への描画開始（クリア・ビューポート設定込み）
+    void EndSceneRender();    // 描画終了（HDR画面と深度を、読める状態にする）
+    // ポストエフェクトの書き出し先を開く／閉じる。ImGuiありはゲーム画面(オフスクリーン)、なしはバックバッファ
+    void BeginPostTarget();
+    void EndPostTarget();
+    D3D12_CPU_DESCRIPTOR_HANDLE GetPostTargetRtv() const;
+    const D3D12_VIEWPORT& GetViewport() const { return viewport_; }
+    const D3D12_RECT& GetScissorRect() const { return scissorRect_; }
+    // HDR画面・深度を読むSRVを、指定のディスクリプタ位置に作る
+    void CreateSceneSrv(D3D12_CPU_DESCRIPTOR_HANDLE destHandle);
+    void CreateDepthSrv(D3D12_CPU_DESCRIPTOR_HANDLE destHandle);
     void BeginBackBuffer();   // 画面(バックバッファ)への描画開始（ImGui用。深度なし）
     // オフスクリーンのSRVを指定のディスクリプタ位置に作る（SrvManagerで確保した位置を渡す）
     void CreateOffscreenSrv(D3D12_CPU_DESCRIPTOR_HANDLE destHandle);
@@ -61,7 +72,7 @@ public:
     ComPtr<ID3D12Resource> CreateTextureResource(const DirectX::TexMetadata& metadata);
     // アップロード用の中間リソースはこのクラスが保持し、GPU完了後に自動で解放する
     void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages);
-    ComPtr<IDxcBlob> CompileShader(const std::wstring& filePath, const wchar_t* profile);
+    ComPtr<IDxcBlob> CompileShader(const std::wstring& filePath, const wchar_t* profile, const wchar_t* entry = L"main");
 
     static DirectX::ScratchImage LoadTexture(const std::string& filepath);
 
@@ -74,6 +85,11 @@ public:
     //--------------------------------------------------
     // ゲッター
     //--------------------------------------------------
+    // GPUの時間計測：命令の流れの途中に印をつけると、前の印からこの印までのGPU時間(ms)が1フレーム遅れで取れる
+    struct GpuTiming { const char* name; float ms; };
+    void GpuMark(const char* name);
+    const std::vector<GpuTiming>& GetGpuTimings() const { return gpuTimings_; }
+
     ID3D12Device* GetDevice() const { return device_.Get(); }
     ID3D12GraphicsCommandList* GetCommandList() const { return commandList_.Get(); }
     ID3D12DescriptorHeap* GetSrvDescriptorHeap() const { return srvDescriptorHeap_.Get(); }
@@ -87,9 +103,13 @@ private:
     void InitializeRenderTargetViews();
     void InitializeDepthStencil();
     void InitializeOffscreenTarget();
+    void InitializeSceneTarget();
     void InitializeFence();
     void InitializeViewportScissor();
     void InitializeDxc();
+
+    void InitializeGpuTimer();
+    void ReadGpuTimings();
 
     void WaitForGPU();
     void ResetCommandList();
@@ -120,6 +140,20 @@ private:
     // ゲーム画面用のオフスクリーンレンダーターゲット（RTVはRTVヒープの最後の1枠）
     ComPtr<ID3D12Resource> offscreenResource_;
     D3D12_CPU_DESCRIPTOR_HANDLE offscreenRtvHandle_{};
+
+    // シーンを描くHDRの画面（RTVはRTVヒープの最後の1枠）
+    ComPtr<ID3D12Resource> sceneResource_;
+    D3D12_CPU_DESCRIPTOR_HANDLE sceneRtvHandle_{};
+    bool depthReadable_ = false; // 深度が「読める状態」になっているか（最初は書ける状態）
+
+    // GPU時間の計測（タイムスタンプ）
+    static constexpr uint32_t kMaxGpuMarks = 32;
+    ComPtr<ID3D12QueryHeap> queryHeap_;
+    ComPtr<ID3D12Resource> queryReadback_;
+    uint32_t gpuMarkCount_ = 0;
+    const char* gpuMarkNames_[kMaxGpuMarks] = {};
+    uint64_t gpuFrequency_ = 0;
+    std::vector<GpuTiming> gpuTimings_;
 
     ComPtr<ID3D12Fence> fence_;
     uint64_t fenceValue_ = 0;

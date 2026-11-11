@@ -6,9 +6,11 @@
 #include "2d/SpriteCommon.h"
 #include "input/Input.h"
 #include "editor/EditorLayout.h"
+#include "WesternShooterScene.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 #ifdef USE_IMGUI
 #include "imgui/imgui.h"
@@ -188,12 +190,20 @@ void StartupScene::Initialize()
     storm_ = std::make_unique<SakuraStorm>();
     storm_->Initialize(common);
     time_ = 0.0f;
+    loadTime_ = 0.0f;
+    loadWait_ = 0;
     leaving_ = false;
     camInit_ = false;
 }
 
 void StartupScene::Update()
 {
+    // 演出を流しながら、西部シューティングの読み込みを1フレームに1段階ずつ進める（エンジンの LoadQueue。最初の数フレームは絵を出すのを優先して待つ）
+    if (!WesternShooterEntry::IsReady()) {
+        WesternShooterEntry::PreloadStep(ctx_);
+    }
+    loadTime_ += kDt;
+
     time_ += kDt;
     const float t = time_;
 
@@ -311,7 +321,8 @@ void StartupScene::Update()
     Input& input = *ctx_->input;
     const bool skip = input.TriggerKey(DIK_RETURN) || input.TriggerKey(DIK_SPACE) || input.TriggerKey(DIK_ESCAPE)
         || input.TriggerGamepadButton(0) || click;
-    if (!leaving_ && (skip || t >= kStormStart + kStormTime)) {
+    // 読み込みが終わるまではタイトルへ進まない（演出が終わっても、NOW LOADING を出して待つ）
+    if (!leaving_ && WesternShooterEntry::IsReady() && (skip || t >= kStormStart + kStormTime)) {
         leaving_ = true;
         TitleScene::s_fromStartup = true; // タイトルは桜色から明るくなる
         ctx_->sceneManager->ChangeScene<TitleScene>();
@@ -337,6 +348,9 @@ void StartupScene::DrawImGui()
     ImGui::Separator();
     ImGui::Text("Enter / Space / Esc / Click / Pad A: skip");
     ImGui::End();
+
+    // NOW LOADING：読み込みが終わるまで、右下に出す
+    WesternShooterEntry::DrawLoading(kScreenW, kScreenH);
 #endif // USE_IMGUI
 }
 

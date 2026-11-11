@@ -27,7 +27,7 @@ void TitleScene::Update()
 #endif // USE_IMGUI
     if (ctx_->input->TriggerKey(DIK_RETURN) || ctx_->input->TriggerKey(DIK_SPACE)
         || ctx_->input->TriggerGamepadButton(0) || click) {
-        ctx_->sceneManager->ChangeScene<WesternShooterScene>();
+        ctx_->sceneManager->ChangeScene<WesternShooterEntry>();
     }
 }
 

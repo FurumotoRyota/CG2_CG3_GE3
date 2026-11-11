@@ -29,6 +29,8 @@ public:
     void Step(float dt);
     void Update(const Matrix4x4& view, const Matrix4x4& proj);
     void Draw();
+    void SetPbr(float rough, float metal); // 扉の材質をPBRにする（Initialize のあとに1回）
+    void DrawShadow(ID3D12GraphicsCommandList* commandList); // 影の深度を描く
 
     // 揺れを止めて閉じた状態に戻す
     void Reset();

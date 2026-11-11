@@ -1,6 +1,10 @@
 ﻿#include "MapRenderer.h"
 
 #include <algorithm>
+#include <map>
+#include <string>
+#include <tuple>
+#include <unordered_set>
 #include <cassert>
 #include <cmath>
 #include <utility>
@@ -16,6 +20,16 @@ namespace {
     {
         if (Material* m = obj.GetObject3d().GetMaterial()) {
             m->color = Vector4{ r, g, b, 1.0f };
+        }
+    }
+
+    // 材質をPBR（つや・環境の映り込み）にする。粗さ rough（0:鏡面〜1:ざらざら）、金属度 metal
+    void SetPbr(GameObject& obj, float rough, float metal)
+    {
+        if (Material* m = obj.GetObject3d().GetMaterial()) {
+            m->specularMode = 3;
+            m->roughness = rough;
+            m->metallic = metal;
         }
     }
 
@@ -105,6 +119,9 @@ namespace {
 void MapRenderer::Initialize(Object3dCommon* common, ModelManager* models)
 {
     assert(common && models);
+    common_ = common;
+    models_ = models;
+    batcher_.Initialize(common, models, "ws_chunk"); // 動かない物をまとめる部品（エンジン側）
 
     // 単色の立方体モデルを登録する（palette.png の白のマスだけを使う）。同じ名前はすでにあればそれを使う
     float u = 0.0f;
@@ -119,9 +136,12 @@ void MapRenderer::Initialize(Object3dCommon* common, ModelManager* models)
         modelPools_[i].Initialize(common, kModels[i].file, kModels[i].capacity);
     }
     floor_.Initialize(common, kCubeName, { 0.0f, 0.0f, 0.0f });
+    floor_.GetObject3d().SetCastShadow(false); // 地面は影を受けるだけ
+    SetPbr(floor_, 0.95f, 0.0f);
     for (GameObject& g : gates_) {
         g.Initialize(common, kCubeName, { 0.0f, 0.0f, 0.0f });
         SetTint(g, 1.0f, 0.85f, 0.2f);
+        SetPbr(g, 0.5f, 0.6f);
     }
 }
 
@@ -147,6 +167,10 @@ bool MapRenderer::Build(const MapData& map)
     blockItems_.clear();
     buildingItems_.clear();
     propItems_.clear();
+    batcher_.Clear();
+    buildingGroups_.clear();
+    lampSpots_.clear();
+    currentGroup_ = -1;
     const int W = map.width;
     const int H = map.height;
 
@@ -362,6 +386,7 @@ bool MapRenderer::Build(const MapData& map)
         t.Translate = { g.x0 + w * 0.5f, 0.5f, g.z0 + d * 0.5f };
         gateVisible_[i] = true;
     }
+    BakeStatic();
     return complete;
 }
 
@@ -376,6 +401,20 @@ bool MapRenderer::AddBuilding(const MapData::BuildingRect& b)
     const float centerX = b.x0 + sizeX * 0.5f;
     const float centerZ = b.z0 + sizeZ * 0.5f;
     bool ok = true;
+
+    // 夜の灯りの位置：正面のすぐ外側、少し高いところ
+    {
+        constexpr float kOut = -0.9f; // 正面の面から外へ
+        float lx = centerX;
+        float lz = b.z0 + kOut;
+        switch (b.facing) {
+        case MapData::FaceNorth: lz = (b.z1 + 1.0f) - kOut; break;
+        case MapData::FaceWest:  lx = b.x0 + kOut; lz = centerZ; break;
+        case MapData::FaceEast:  lx = (b.x1 + 1.0f) - kOut; lz = centerZ; break;
+        default: break;
+        }
+        lampSpots_.push_back({ lx, 1.9f, lz });
+    }
 
     // 立方体を1つ置く。u=正面の幅方向（中心が0）、v=正面の面から建物の中へ測った距離（外側は負）。
     // 向きごとにワールド座標へ直す（正面が南なら u=+x、v=+z。北は逆向き。西・東は x と z を入れ替える）
@@ -402,6 +441,18 @@ bool MapRenderer::AddBuilding(const MapData::BuildingRect& b)
 
     // 地面の影（建物の高さに応じて右側へ伸びる）
     ok &= AddShadow(static_cast<float>(b.x0), b.z0 + 0.3f, static_cast<float>(b.x1 + 1), static_cast<float>(b.z1 + 1), st.height * 1.1f);
+
+    // ここから先に置く部品（本体・飾り。地面の影は除く）を、この建物の部品として集める
+    {
+        BuildingGroup g;
+        g.minX = static_cast<float>(b.x0);
+        g.maxX = static_cast<float>(b.x1 + 1);
+        g.minZ = static_cast<float>(b.z0);
+        g.maxZ = static_cast<float>(b.z1 + 1);
+        g.height = st.height + 1.5f;
+        buildingGroups_.push_back(g);
+        currentGroup_ = static_cast<int>(buildingGroups_.size()) - 1;
+    }
 
     // 3Dモデルの建物。正面の幅に合わせて横に並べ、奥行きにも並べる（建物の正面は、モデルの +z 側）
     {
@@ -470,7 +521,9 @@ bool MapRenderer::AddBuilding(const MapData::BuildingRect& b)
             front(W * 0.25f + 1.2f, 1.2f, kMBarrel, 1.1f);
             roof(-W * 0.25f, D * 0.7f, kMWaterTower, 0.7f, roofH); // 屋根の上の給水塔
         }
+        buildingGroups_[currentGroup_].height = (std::max)(buildingGroups_[currentGroup_].height, roofH + 1.5f);
     }
+    currentGroup_ = -1;
     return ok;
 }
 
@@ -486,6 +539,13 @@ bool MapRenderer::AddModel(ModelId id, float px, float py, float pz, float yaw, 
     const ModelInfo& m = kModels[id];
     // 画面の外かどうかの判定用の大きさ。原点が真ん中とは限らないので、余裕を足す
     Track(propItems_, obj, px, pz, (m.maxX - m.minX) * sx + 2.0f, (m.maxZ - m.minZ) * sz + 2.0f);
+    // 金属のもの：つやを強く
+    if (id == kMGold) {
+        SetPbr(*obj, 0.28f, 0.9f);
+    }
+    else if (id == kMWindmill || id == kMMineCart || id == kMWaterTower) {
+        SetPbr(*obj, 0.5f, 0.55f);
+    }
     return true;
 }
 
@@ -497,12 +557,19 @@ bool MapRenderer::AddProp(float px, float py, float pz, float sx, float sy, floa
     }
     obj->GetObject3d().GetTransform().Scale = { sx, sy, sz };
     SetTint(*obj, r, g, b);
+    obj->GetObject3d().SetCastShadow(sy >= 0.3f); // 地面のまだら・草・小物は影を落とさない（描く数を減らす）
     Track(propItems_, obj, px, pz, sx, sz);
+    propItems_.back().cube = true;
     return true;
 }
 
 bool MapRenderer::AddShadow(float xa, float za, float xb, float zb, float len)
 {
+    // 本物の影（シャドウマップ）を使うので、地面の偽の影は置かない
+    constexpr bool kFakeShadow = false;
+    if (!kFakeShadow) {
+        return true;
+    }
     // 地面すれすれの平たい箱（半透明にはできないので、地面より少し暗い色）
     return AddProp((xa + xb + len) * 0.5f, 0.03f, (za + zb) * 0.5f, (xb - xa) + len, 0.06f, zb - za, 0.52f, 0.40f, 0.28f);
 }
@@ -555,6 +622,73 @@ bool MapRenderer::AddCover(int x0, int z0, int x1, int z1)
     return ok;
 }
 
+void MapRenderer::BakeStatic()
+{
+    // 立方体1つぶんの元の形（色は、パレット上のUVの位置を変えて付ける）
+    const ModelData cubeData = CubeMesh::MakeCube("resources/palette.png", 0.0f, 0.0f);
+    const std::vector<VertexData>& cubeVerts = cubeData.meshes[0].vertices;
+    std::unordered_set<GameObject*> baked;
+
+    // 1つをバッチ（エンジンの StaticBatcher）へ足す。まとめられないもの（モデルの形が無いなど）は false
+    auto bakeOne = [&](const Item& it, bool isCube) -> bool {
+        Object3d& o = it.obj->GetObject3d();
+        if (!isCube) {
+            return batcher_.AddObject(o, it.group);
+        }
+        Material* m = o.GetMaterial();
+        const Transform& t = o.GetTransform();
+        const Vector4 col = m ? m->color : Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+        StaticBatcher::Piece p;
+        p.vertices = &cubeVerts;
+        p.texture = "resources/palette.png";
+        p.world = Matrix4x4::MakeAffineMatrix(t.Scale, t.Rotate, t.Translate);
+        p.x = it.x;
+        p.z = it.z;
+        p.group = it.group;
+        p.castShadow = o.GetCastShadow();
+        p.exactColor = it.group >= 0; // 建物の立方体だけ、色を正確に保つ。ほかは近い色（パレット）に丸める
+        p.color = col;
+        if (m) {
+            p.roughness = m->roughness;
+            p.metallic = m->metallic;
+        }
+        const ColorRGB c = p.exactColor ? ColorRGB{ 1.0f, 1.0f, 1.0f } : ColorRGB{ col.x, col.y, col.z };
+        ColorBatch::ColorToUv(c, p.uv.x, p.uv.y);
+        p.overrideUv = true;
+        batcher_.AddPiece(p);
+        return true;
+    };
+
+    for (const Item& it : blockItems_) {
+        bakeOne(it, true);
+    }
+    for (const Item& it : buildingItems_) {
+        bakeOne(it, true);
+    }
+    for (const Item& it : propItems_) {
+        if (bakeOne(it, it.cube)) {
+            baked.insert(it.obj);
+        }
+    }
+    // 立方体は全部まとめたので、元の一覧から外す（モデルでまとめられなかったものだけ残る）
+    for (const Item& it : blockItems_) {
+        baked.insert(it.obj);
+    }
+    for (const Item& it : buildingItems_) {
+        baked.insert(it.obj);
+    }
+    blockItems_.clear();
+    buildingItems_.clear();
+    propItems_.erase(std::remove_if(propItems_.begin(), propItems_.end(), [&](const Item& it) { return baked.count(it.obj) != 0; }), propItems_.end());
+    for (BuildingGroup& g : buildingGroups_) {
+        g.parts.erase(std::remove_if(g.parts.begin(), g.parts.end(), [&](GameObject* p) { return baked.count(p) != 0; }), g.parts.end());
+    }
+
+    // まとめた頂点から、大きなメッシュを作る（cubeVerts がまだ生きているうちに）
+    batcher_.Build();
+}
+
 void MapRenderer::SetGateVisible(size_t index, bool visible)
 {
     if (index < gateCount_ && index < MapData::kMaxGates) {
@@ -577,15 +711,35 @@ void MapRenderer::Track(std::vector<Item>& items, GameObject* obj, float x, floa
     it.x = x;
     it.z = z;
     it.radius = 0.5f * std::sqrt(sx * sx + sz * sz); // 回っていなくても足りる大きさ
+    it.group = currentGroup_;
     items.push_back(it);
+    SetPbr(*obj, 0.85f, 0.0f); // 壁・建物・飾りは、ざらっとした材質（太陽のつやと空の映り込みが乗る）
+    if (currentGroup_ >= 0) {
+        buildingGroups_[currentGroup_].parts.push_back(obj); // 建物の部品なら、半透明にするためにも覚えておく
+        obj->GetObject3d().SetBlendMode(BlendMode::None);   // プールの使い回しで半透明のまま残らないように
+    }
 }
 
-void MapRenderer::UpdateItems(std::vector<Item>& items, const Matrix4x4& view, const Matrix4x4& proj)
+void MapRenderer::SetPropRect(float minX, float minZ, float maxX, float maxZ)
 {
+    propMinX_ = minX;
+    propMinZ_ = minZ;
+    propMaxX_ = maxX;
+    propMaxZ_ = maxZ;
+    propRectSet_ = true;
+}
+
+void MapRenderer::UpdateItems(std::vector<Item>& items, const Matrix4x4& view, const Matrix4x4& proj, bool useProp)
+{
+    const bool prop = useProp && propRectSet_;
+    const float minX = prop ? propMinX_ : visMinX_;
+    const float minZ = prop ? propMinZ_ : visMinZ_;
+    const float maxX = prop ? propMaxX_ : visMaxX_;
+    const float maxZ = prop ? propMaxZ_ : visMaxZ_;
     for (Item& it : items) {
         // 映る範囲の外は何もしない（行列計算も描画もしない）
-        it.visible = it.x + it.radius >= visMinX_ && it.x - it.radius <= visMaxX_
-            && it.z + it.radius >= visMinZ_ && it.z - it.radius <= visMaxZ_;
+        it.visible = it.x + it.radius >= minX && it.x - it.radius <= maxX
+            && it.z + it.radius >= minZ && it.z - it.radius <= maxZ;
         if (it.visible) {
             it.obj->GetObject3d().Update(view, proj);
             ++visibleCount_;
@@ -602,16 +756,117 @@ void MapRenderer::DrawItems(std::vector<Item>& items)
     }
 }
 
+namespace {
+    // 線分 a-b が、箱 min-max を通るか
+    bool SegmentHitsBox(const Vector3& a, const Vector3& b, const Vector3& bmin, const Vector3& bmax)
+    {
+        const float pa[3] = { a.x, a.y, a.z };
+        const float pd[3] = { b.x - a.x, b.y - a.y, b.z - a.z };
+        const float lo[3] = { bmin.x, bmin.y, bmin.z };
+        const float hi[3] = { bmax.x, bmax.y, bmax.z };
+        float t0 = 0.0f, t1 = 1.0f;
+        for (int i = 0; i < 3; ++i) {
+            if (std::fabs(pd[i]) < 1.0e-6f) {
+                if (pa[i] < lo[i] || pa[i] > hi[i]) {
+                    return false;
+                }
+                continue;
+            }
+            float ta = (lo[i] - pa[i]) / pd[i];
+            float tb = (hi[i] - pa[i]) / pd[i];
+            if (ta > tb) {
+                std::swap(ta, tb);
+            }
+            t0 = (std::max)(t0, ta);
+            t1 = (std::min)(t1, tb);
+            if (t0 > t1) {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
+// カメラから自機・敵（足もとと頭）への線が建物の箱を通るなら、その建物を半透明に近づける。通らなくなったら元に戻す
+void MapRenderer::UpdateOcclusion(const Matrix4x4& view)
+{
+    constexpr float kFadedAlpha = 0.28f; // 隠しているときの不透明度
+    constexpr float kFadeSpeed = 0.18f;  // 1フレームに近づく割合
+    constexpr float kMargin = 0.35f;     // 庇・飾りの分、箱を広げる
+    const Matrix4x4 inv = Inverse(view);
+    const Vector3 cam = { inv.m[3][0], inv.m[3][1], inv.m[3][2] };
+    for (BuildingGroup& g : buildingGroups_) {
+        const Vector3 bmin = { g.minX - kMargin, 0.0f, g.minZ - kMargin };
+        const Vector3 bmax = { g.maxX + kMargin, g.height, g.maxZ + kMargin };
+        bool hidden = false;
+        for (const Vector2& t : occlusionTargets_) {
+            if (SegmentHitsBox(cam, { t.x, 0.2f, t.y }, bmin, bmax) || SegmentHitsBox(cam, { t.x, 1.6f, t.y }, bmin, bmax)) {
+                hidden = true;
+                break;
+            }
+        }
+        const float target = hidden ? kFadedAlpha : 1.0f;
+        g.alpha += (target - g.alpha) * kFadeSpeed;
+        if (std::fabs(target - g.alpha) < 0.01f) {
+            g.alpha = target;
+        }
+        if (g.alpha == g.applied) {
+            continue;
+        }
+        g.applied = g.alpha;
+        const bool translucent = g.alpha < 0.995f;
+        batcher_.SetGroupAlpha(static_cast<int>(&g - buildingGroups_.data()), g.alpha); // まとめたメッシュ
+        for (GameObject* part : g.parts) {
+            Object3d& o = part->GetObject3d();
+            if (Material* mat = o.GetMaterial()) {
+                mat->color.w = g.alpha;
+            }
+            o.SetBlendMode(translucent ? BlendMode::Normal : BlendMode::None);
+        }
+    }
+}
+
 void MapRenderer::Update(const Matrix4x4& view, const Matrix4x4& proj)
 {
     visibleCount_ = 0;
+    UpdateOcclusion(view);
     floor_.GetObject3d().Update(view, proj);
     UpdateItems(blockItems_, view, proj);
     UpdateItems(buildingItems_, view, proj);
-    UpdateItems(propItems_, view, proj);
+    UpdateItems(propItems_, view, proj, true);
+    batcher_.SetVisibleRect({ visMinX_, visMinZ_, visMaxX_, visMaxZ_ });
+    visibleCount_ += batcher_.Update(view, proj);
     for (size_t i = 0; i < gateCount_ && i < MapData::kMaxGates; ++i) {
         if (gateVisible_[i]) {
             gates_[i].GetObject3d().Update(view, proj);
+        }
+    }
+}
+
+void MapRenderer::DrawShadowItems(std::vector<Item>& items, ID3D12GraphicsCommandList* commandList, float cx, float cz, float radius)
+{
+    for (Item& it : items) {
+        if (!it.visible) {
+            continue;
+        }
+        const float dx = std::fabs(it.x - cx) - it.radius;
+        const float dz = std::fabs(it.z - cz) - it.radius;
+        if (dx > radius || dz > radius) {
+            continue; // 影の範囲の外
+        }
+        it.obj->GetObject3d().DrawShadow(commandList);
+    }
+}
+
+void MapRenderer::DrawShadow(ID3D12GraphicsCommandList* commandList, float centerX, float centerZ, float radius)
+{
+    DrawShadowItems(blockItems_, commandList, centerX, centerZ, radius);
+    DrawShadowItems(buildingItems_, commandList, centerX, centerZ, radius);
+    DrawShadowItems(propItems_, commandList, centerX, centerZ, radius);
+    batcher_.DrawShadow(commandList, centerX, centerZ, radius);
+    for (size_t i = 0; i < gateCount_ && i < MapData::kMaxGates; ++i) {
+        if (gateVisible_[i]) {
+            gates_[i].GetObject3d().DrawShadow(commandList);
         }
     }
 }
@@ -622,6 +877,7 @@ void MapRenderer::Draw()
     DrawItems(blockItems_);
     DrawItems(buildingItems_);
     DrawItems(propItems_);
+    batcher_.Draw();
     for (size_t i = 0; i < gateCount_ && i < MapData::kMaxGates; ++i) {
         if (gateVisible_[i]) {
             gates_[i].Draw();

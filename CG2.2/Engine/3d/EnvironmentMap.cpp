@@ -18,7 +18,19 @@ struct SkyConstants
     Matrix4x4 invView;
     float projScaleX;
     float projScaleY;
-    float padding[2];
+    float mode;      // 0:キューブマップ 1:時間帯の空
+    float padding;
+    float horizon[4];
+    float zenith[4];
+    float ground[4];
+    float toSun[4];
+    float discColor[4];
+    float glowColor[4];
+    float cloud[4];      // x=雲の量 y=星 z,w=雲の流れ
+    float cloudLit[4];   // rgb=雲の明るい側 w=経過秒
+    float cloudShade[4];
+    float moonDir[4];
+    float moonColor[4];
 };
 
 namespace
@@ -189,7 +201,7 @@ void EnvironmentMap::CreateSkyboxPipeline(DirectXCommon* dxCommon)
 
     D3D12_ROOT_PARAMETER params[2] = {};
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL; // 頂点（視線方向）と ピクセル（空の色）の両方で使う
     params[0].Descriptor.ShaderRegister = 0;
     params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -239,7 +251,7 @@ void EnvironmentMap::CreateSkyboxPipeline(DirectXCommon* dxCommon)
     desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
     desc.DSVFormat = DirectXCommon::kDsvFormat;
     desc.NumRenderTargets = 1;
-    desc.RTVFormats[0] = DirectXCommon::kRtvFormat;
+    desc.RTVFormats[0] = DirectXCommon::kSceneFormat;
     desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     desc.SampleDesc.Count = 1;
     desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
@@ -258,6 +270,24 @@ void EnvironmentMap::DrawSkybox(ID3D12GraphicsCommandList* commandList, const Ma
     skyConstants_->invView = Inverse(view);
     skyConstants_->projScaleX = projection.m[0][0];
     skyConstants_->projScaleY = projection.m[1][1];
+    skyConstants_->mode = sky_.procedural ? 1.0f : 0.0f;
+    skyConstants_->padding = 0.0f;
+    auto put = [](float* dst, const Vector3& v) { dst[0] = v.x; dst[1] = v.y; dst[2] = v.z; dst[3] = 0.0f; };
+    put(skyConstants_->horizon, sky_.horizon);
+    put(skyConstants_->zenith, sky_.zenith);
+    put(skyConstants_->ground, sky_.ground);
+    put(skyConstants_->toSun, sky_.toSun);
+    put(skyConstants_->discColor, sky_.discColor);
+    put(skyConstants_->glowColor, sky_.glowColor);
+    skyConstants_->cloud[0] = sky_.cloudCover;
+    skyConstants_->cloud[1] = sky_.starAmount;
+    skyConstants_->cloud[2] = sky_.cloudOffsetX;
+    skyConstants_->cloud[3] = sky_.cloudOffsetZ;
+    put(skyConstants_->cloudLit, sky_.cloudLit);
+    skyConstants_->cloudLit[3] = sky_.time;
+    put(skyConstants_->cloudShade, sky_.cloudShade);
+    put(skyConstants_->moonDir, sky_.toMoon);
+    put(skyConstants_->moonColor, sky_.moonColor);
 
     commandList->SetGraphicsRootSignature(skyRootSignature_.Get());
     commandList->SetPipelineState(skyPipelineState_.Get());

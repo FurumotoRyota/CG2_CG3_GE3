@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <functional>
 #include <limits>
 #include <queue>
 
@@ -194,9 +193,30 @@ namespace GridNav
 
         // A*（8方向）。コストは直進1、斜め√2。見積もりは斜めを含む距離
         const size_t cellCount = static_cast<size_t>(W) * H;
-        std::vector<float> g(cellCount, kInf);
-        std::vector<int> parent(cellCount, -1);
-        std::vector<char> closed(cellCount, 0);
+        // 作業用の配列は使い回す（毎回マップ全体ぶんを作って埋めると、敵が多いときに重い）。
+        //   stamp[i] が今回の番号と同じマスだけ「今回の探索で触れた」ことにして、埋め直しを省く
+        static std::vector<float> gBuf;
+        static std::vector<int> parentBuf;
+        static std::vector<char> closedBuf;
+        static std::vector<unsigned> stampBuf;
+        static unsigned searchId = 0;
+        if (stampBuf.size() != cellCount) {
+            gBuf.assign(cellCount, kInf);
+            parentBuf.assign(cellCount, -1);
+            closedBuf.assign(cellCount, 0);
+            stampBuf.assign(cellCount, 0);
+            searchId = 0;
+        }
+        ++searchId;
+        auto touch = [&](int i) {
+            if (stampBuf[i] != searchId) {
+                stampBuf[i] = searchId;
+                gBuf[i] = kInf;
+                parentBuf[i] = -1;
+                closedBuf[i] = 0;
+            }
+        };
+        int expanded = 0; // 取り出したマスの数（道が無いときに、マップ全体を調べ続けないための上限）
         using Node = std::pair<float, int>; // (見積もり合計, マス番号)
         std::priority_queue<Node, std::vector<Node>, std::greater<Node>> open;
 
@@ -208,7 +228,8 @@ namespace GridNav
 
         const int startIndex = sz * W + sx;
         const int goalIndex = gz * W + gx;
-        g[startIndex] = 0.0f;
+        touch(startIndex);
+        gBuf[startIndex] = 0.0f;
         open.push({ heuristic(sx, sz), startIndex });
 
         static const int kDx[8] = { 1, -1, 0, 0, 1, 1, -1, -1 };
@@ -218,10 +239,13 @@ namespace GridNav
         while (!open.empty()) {
             const int cur = open.top().second;
             open.pop();
-            if (closed[cur]) {
+            if (closedBuf[cur]) { // cur は取り出したマス（touch 済み）
                 continue;
             }
-            closed[cur] = 1;
+            closedBuf[cur] = 1;
+            if (++expanded > 6000) {
+                break; // 遠すぎる・道が無い：あきらめる（見つからなかった扱い）
+            }
             if (cur == goalIndex) {
                 found = true;
                 break;
@@ -235,14 +259,15 @@ namespace GridNav
                     continue;
                 }
                 const int ni = nz * W + nx;
-                if (closed[ni]) {
+                touch(ni);
+                if (closedBuf[ni]) {
                     continue;
                 }
                 const float cost = (kDx[k] != 0 && kDz[k] != 0) ? 1.41421356f : 1.0f;
-                const float ng = g[cur] + cost + (NearSolid(map, nx, nz) ? 1.0f : 0.0f);
-                if (ng < g[ni]) {
-                    g[ni] = ng;
-                    parent[ni] = cur;
+                const float ng = gBuf[cur] + cost + (NearSolid(map, nx, nz) ? 1.0f : 0.0f);
+                if (ng < gBuf[ni]) {
+                    gBuf[ni] = ng;
+                    parentBuf[ni] = cur;
                     open.push({ ng + heuristic(nx, nz), ni });
                 }
             }
@@ -253,7 +278,7 @@ namespace GridNav
 
         // ゴールからさかのぼって、マスの真ん中を順に並べる（最後は goalPos）
         std::vector<Vector2> raw;
-        for (int i = goalIndex; i != -1 && i != startIndex; i = parent[i]) {
+        for (int i = goalIndex; i != -1 && i != startIndex; i = parentBuf[i]) {
             raw.push_back(CellCenter(i % W, i / W));
         }
         std::reverse(raw.begin(), raw.end());

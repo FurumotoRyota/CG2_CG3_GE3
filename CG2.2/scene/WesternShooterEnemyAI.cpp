@@ -105,33 +105,23 @@ void WesternShooterScene::UpdateEnemies(float dt)
         if (e.spawnT > 0.0f) {
             e.obj->GetObject3d().GetTransform().Translate.y = kHeight + e.flightY; // 飛んでいる高さ
         }
-        if (e.spawnT <= 0.0f) {
-            AnimateEnemy(e, dt);
-        }
         else {
-            e.obj->GetObject3d().PlayAnimation("Roll", true, 0.05f); // 飛んでいる間は体を丸める
-            e.obj->GetObject3d().UpdateSkin(dt);
+            AnimateEnemy(e, dt);
         }
         TintEnemy(e);
     }
 }
 
-// ---------------------------------------------------------------- 骨のアニメーションの選び方
-// 行動に合わせて、待機・歩き・走り・構え・しゃがみなどを選ぶ。撃つ・やられは、その瞬間に流し始めて animLock の間は切り替えない
+// ---------------------------------------------------------------- 歩き・のけぞりの動き
+// モデルは1つの塊なので、傾ける・弾ませる・つぶすだけで動きを出す
 void WesternShooterScene::AnimateEnemy(Enemy& e, float dt)
 {
-    Object3d& o = e.obj->GetObject3d();
-    Transform& tr = o.GetTransform();
-    const bool boss = e.type == EnemyType::Boss;
-    const float base = (e.type == EnemyType::Brute) ? kBruteScale : (boss ? kBossScale : kGunmanScale);
-    tr.Translate.y = kHeight;
-    tr.Rotate.x = 0.0f;
-    tr.Rotate.z = 0.0f;
-    tr.Scale = { base, base, base };
+    Transform& tr = e.obj->GetObject3d().GetTransform();
+    const float base = (e.type == EnemyType::Brute) ? kBruteScale : (e.type == EnemyType::Boss ? kBossScale : kGunmanScale);
 
     // 歩く速さ（時間が止まっている間は変えない）
-    float speed = 0.0f;
     if (dt > 0.0f) {
+        float speed = 0.0f;
         if (e.prevValid) {
             speed = Length2D({ e.pos.x - e.prevPos.x, e.pos.y - e.prevPos.y }) / dt;
         }
@@ -141,42 +131,71 @@ void WesternShooterScene::AnimateEnemy(Enemy& e, float dt)
         e.walkAmt += (target - e.walkAmt) * (std::min)(1.0f, dt * 10.0f);
         const float before = e.walkPhase;
         e.walkPhase += dt * (7.0f + speed * 0.9f);
-        e.animLock = (std::max)(0.0f, e.animLock - dt);
+        e.hitReact = (std::max)(0.0f, e.hitReact - dt / 0.35f);
         // ボスは足を着くたびに、少し土ぼこり
-        if (boss && e.walkAmt > 0.5f && std::floor(before / 3.1415927f) != std::floor(e.walkPhase / 3.1415927f)) {
+        if (e.type == EnemyType::Boss && e.walkAmt > 0.5f && std::floor(before / 3.1415927f) != std::floor(e.walkPhase / 3.1415927f)) {
             dust_.Emit({ e.pos.x, 0.15f, e.pos.y }, 2, 1.2f, 0.4f, 0.4f, 0.82f, 0.72f, 0.52f);
         }
     }
 
-    if (e.animLock <= 0.0f) {
-        const float size = boss ? 1.3f : 1.0f; // ボスは歩幅が大きいぶん、速く動いても足の回転は遅くてよい
-        const char* clip = "Idle";
-        float playSpeed = 1.0f;
-        if (e.type == EnemyType::Brute && e.state == AiState::Rush) {
-            clip = (e.rushPhase == 0) ? "Windup" : (e.rushPhase == 1 ? "Run" : "Tired"); // 構え・突進・息切れ
-            if (e.rushPhase == 1) {
-                playSpeed = std::clamp(speed / (5.1f * size), 0.8f, 1.6f);
-            }
+    const float amp = (e.type == EnemyType::Boss) ? 0.5f : 1.0f; // ボスは重いので、ゆれは小さめ
+    float bob = std::fabs(std::sin(e.walkPhase)) * 0.11f * e.walkAmt * amp;
+    float pitch = 0.10f * e.walkAmt;                   // 前のめり
+    float roll = std::sin(e.walkPhase) * 0.13f * e.walkAmt * amp; // 左右にゆれる
+    float squash = std::sin(e.walkPhase * 2.0f) * 0.035f * e.walkAmt; // 一歩ごとに伸び縮み
+    float sy = 1.0f, sxz = 1.0f;
+
+    // 行動ごとの構え
+    if (e.type == EnemyType::Brute && e.state == AiState::Rush) {
+        if (e.rushPhase == 0) {            // 構え：のけぞって、ぶるぶる震える（突進の予告）
+            pitch = -0.30f;
+            roll = std::sin(e.rushTimer * 60.0f) * 0.07f;
+            sy = 0.92f;
         }
-        else if (e.type == EnemyType::Gunman && e.state == AiState::Hide && e.walkAmt < 0.3f) {
-            clip = "Crouch"; // 物陰にしゃがむ
+        else if (e.rushPhase == 1) {       // 突進：前に大きくのめる
+            pitch = 0.45f;
+            bob *= 0.3f;
         }
-        else if (boss && e.bossState == BossState::Telegraph) {
-            clip = "Windup"; // 撃つ前に大きくのけぞる
+        else {                             // 息切れ：前かがみで肩を上下させる
+            pitch = 0.28f;
+            sy = 1.0f + std::sin(e.rushTimer * 22.0f) * 0.03f;
         }
-        else if (e.walkAmt > 0.2f) {
-            if (speed > 3.6f * size) {
-                clip = "Run";
-                playSpeed = std::clamp(speed / (5.1f * size), 0.6f, 1.6f);
-            }
-            else {
-                clip = "Walk";
-                playSpeed = std::clamp(speed / (2.2f * size), 0.5f, 2.0f);
-            }
-        }
-        o.PlayAnimation(clip, true, 0.12f, playSpeed);
     }
-    o.UpdateSkin(dt);
+    else if (e.type == EnemyType::Gunman) {
+        if (e.state == AiState::Hide) {    // 隠れている：しゃがむ
+            sy = 0.82f;
+            sxz = 1.06f;
+        }
+        else if (e.state == AiState::Shoot || e.state == AiState::Peek) {
+            pitch = -0.08f;                // 構えて、少しそり気味
+        }
+    }
+    else if (e.type == EnemyType::Boss && e.bossState == BossState::Telegraph) {
+        pitch = -0.2f;                     // 撃つ前に、大きくのけぞる
+        sy = 0.96f;
+    }
+
+    // 弾が当たったときののけぞり：弾の進む向きに押されて、体が傾く
+    if (e.hitReact > 0.0f) {
+        const float r = e.hitReact * e.hitReact * ((e.type == EnemyType::Boss) ? 0.4f : 1.0f);
+        const float yaw = tr.Rotate.y;
+        const Vector2 front = { std::sin(yaw), std::cos(yaw) };
+        const Vector2 right = { front.y, -front.x };
+        const float along = e.hitReactDir.x * front.x + e.hitReactDir.y * front.y; // +1 なら背中から撃たれた
+        const float side = e.hitReactDir.x * right.x + e.hitReactDir.y * right.y;
+        pitch += 0.55f * r * along;
+        roll -= 0.45f * r * side;
+        sy *= 1.0f - 0.10f * r;
+        sxz *= 1.0f + 0.08f * r;
+        roll += std::sin(e.hitReact * 40.0f) * 0.08f * r; // ぶるっと震える
+    }
+
+    sy *= 1.0f + squash;
+    sxz *= 1.0f - squash * 0.5f;
+    tr.Translate.y = kHeight + bob;
+    tr.Rotate.x = pitch;
+    tr.Rotate.z = roll;
+    tr.Scale = { base * sxz, base * sy, base * sxz };
 }
 
 // ---------------------------------------------------------------- 登場の飛び出し
@@ -624,8 +643,6 @@ void WesternShooterScene::UpdateGunman(Enemy& e, float dt, AiShared& shared)
                     burstGate_ = kBurstStagger;
                 }
                 FireEnemyBullet(e);
-                e.obj->GetObject3d().PlayAnimation("Shoot", false, 0.03f); // 撃つ：腕が跳ね上がる
-                e.animLock = 0.3f;
                 --e.shotsLeft;
                 e.fireTimer = kGunmanShotInterval;
             }
@@ -811,6 +828,7 @@ void WesternShooterScene::MoveToward(Enemy& e, const Vector2& target, float radi
     if (GridNav::CanWalk(map_, e.pos, target, radius)) {
         e.path.clear();
         e.pathIndex = 0;
+        e.repathTimer = 0.0f; // 次に壁にぶつかったら、すぐ道を探せるように
         const Vector2 d = { target.x - e.pos.x, target.y - e.pos.y };
         const float len = Length2D(d);
         if (len > 0.0001f) {
@@ -822,10 +840,12 @@ void WesternShooterScene::MoveToward(Enemy& e, const Vector2& target, float radi
     }
 
     // 壁がある：道を探し、曲がり角ごとにたどる
-    if (e.pathIndex >= e.path.size() || e.repathTimer <= 0.0f) {
+    //   道が見つからなかった（path が空）あとは、時間が来るまで探し直さない（毎フレーム探すと、敵が多いときに重い）
+    if ((e.pathIndex >= e.path.size() && !e.path.empty()) || e.repathTimer <= 0.0f) {
         GridNav::FindPath(map_, e.pos, target, radius, e.path);
         e.pathIndex = 0;
-        e.repathTimer = kRepathInterval;
+        // 敵どうしの探すタイミングがそろわないように、間隔に少しばらつきをつける
+        e.repathTimer = kRepathInterval * (0.75f + 0.5f * static_cast<float>(std::rand() % 100) * 0.01f);
     }
     if (e.path.empty()) {
         // 道が無い：壁に向かって押し付けるだけにして、無理に動かない
@@ -972,8 +992,6 @@ void WesternShooterScene::EnterBossState(Enemy& e, BossState next)
         e.bossTimer = kBossTelegraph * rush;
         break;
     case BossState::Fire:
-        e.obj->GetObject3d().PlayAnimation("Shoot", false, 0.04f); // 撃つ
-        e.animLock = 0.4f;
         e.shotsLeft = (e.bossAttack == BossAttack::Burst) ? kBossBurstCount + (enraged ? 3 : 0) : 1;
         e.fireTimer = 0.0f;
         break;
