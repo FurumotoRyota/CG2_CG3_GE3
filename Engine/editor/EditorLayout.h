@@ -59,6 +59,10 @@ namespace EditorLayout
     // ゲーム画面の座標で、体力ゲージのような横棒を描く（center は中心、frac は 0..1 の満たし具合）
     void DrawViewportBar(const Vector2& center, const Vector2& size, float frac, unsigned int color);
 
+    // 枠なしの塗りつぶし四角を描く。center は中心、size は大きさ（ゲーム画面のピクセル）、color は Ui::Rgba などで作った色
+    // （DrawViewportBar は呼ぶたびに黒い枠を描くので、重ねて使うときはこちらを使う）
+    void DrawViewportRect(const Vector2& center, const Vector2& size, unsigned int color);
+
     // Viewportの上に文字を描く。center はゲーム画面のピクセル座標（文字の中心）、sizePx は文字の高さ（ゲーム画面のピクセル）、color は IM_COL32 形式
     void DrawViewportText(const Vector2& center, const char* text, float sizePx, unsigned int color);
 }

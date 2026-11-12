@@ -103,6 +103,7 @@ void Framework::Run()
         // シーンはHDRの画面に描き、ポストエフェクトで最終の画面へ書き出す
         dxCommon_.BeginSceneRender();
         sceneManager_.Draw();
+        DrawOverlay();          // Game側の重ね描き（デバッグ描画など）
         dxCommon_.EndSceneRender();
 
         dxCommon_.BeginPostTarget();

@@ -289,6 +289,7 @@
     <ClCompile Include="scene\SceneManager.cpp" />
     <ClCompile Include="startup\SakuraStorm.cpp" />
     <ClCompile Include="startup\StartupScene.cpp" />
+    <ClCompile Include="debug\LineBatch.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="2d\Sprite.h" />
@@ -347,6 +348,23 @@
     <ClInclude Include="scene\Scene.h" />
     <ClInclude Include="scene\SceneContext.h" />
     <ClInclude Include="scene\SceneManager.h" />
+    <ClInclude Include="math\Easing.h" />
+    <ClInclude Include="math\MathUtil.h" />
+    <ClInclude Include="math\Random.h" />
+    <ClInclude Include="core\Timer.h" />
+    <ClInclude Include="core\StateMachine.h" />
+    <ClInclude Include="core\SaveData.h" />
+    <ClInclude Include="ui\UiCommon.h" />
+    <ClInclude Include="ui\UiButton.h" />
+    <ClInclude Include="ui\UiGauge.h" />
+    <ClInclude Include="ui\ScreenFade.h" />
+    <ClInclude Include="ui\UiToast.h" />
+    <ClInclude Include="ui\UiRenderer.h" />
+    <ClInclude Include="2d\BitmapFont.h" />
+    <ClInclude Include="debug\DebugDraw.h" />
+    <ClInclude Include="debug\LineBatch.h" />
+    <ClInclude Include="debug\LineGeometry.h" />
+    <ClInclude Include="debug\LogPanel.h" />
     <ClInclude Include="startup\SakuraStorm.h" />
     <ClInclude Include="startup\StartupBrushPath.h" />
     <ClInclude Include="startup\StartupScene.h" />

@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Engine（サブモジュール）に新しい版が出ていないか、毎日チェックする
+  # 新しい版があれば、「Engine を新しい版にする」プルリクエストが自動で作られる（変更されたコミットの一覧つき）
+  # そのプルリクエストでも、上の Build が自動で動くので、ビルドが通るかすぐ分かる
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "Engine"

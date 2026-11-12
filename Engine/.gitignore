@@ -1,0 +1,11 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+x64/
+Debug/
+Release/
+Development/
+
+# ビルドの出力
+build/

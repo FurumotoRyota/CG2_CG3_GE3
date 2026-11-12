@@ -43,6 +43,12 @@
     <Filter Include="scene">
       <UniqueIdentifier>{b5be8bfb-e72c-4918-a38d-d64b1a9b000f}</UniqueIdentifier>
     </Filter>
+    <Filter Include="ui">
+      <UniqueIdentifier>{7d3c1a52-0b9e-4f4e-9a52-3c1f6a8e2b10}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="debug">
+      <UniqueIdentifier>{2c9a8e41-6b7d-4d0e-8a35-91f4c7b5d3a2}</UniqueIdentifier>
+    </Filter>
     <Filter Include="video">
       <UniqueIdentifier>{117a303e-fa34-4acd-bac4-12ac5fddbede}</UniqueIdentifier>
     </Filter>
@@ -176,6 +182,9 @@
     </ClCompile>
     <ClCompile Include="startup\StartupScene.cpp">
       <Filter>scene</Filter>
+    </ClCompile>
+    <ClCompile Include="debug\LineBatch.cpp">
+      <Filter>debug</Filter>
     </ClCompile>
     <ClCompile Include="3d\PostProcess.cpp" />
     <ClCompile Include="3d\RenderLook.cpp" />
@@ -323,6 +332,57 @@
     </ClInclude>
     <ClInclude Include="scene\SceneManager.h">
       <Filter>scene</Filter>
+    </ClInclude>
+    <ClInclude Include="math\Easing.h">
+      <Filter>math</Filter>
+    </ClInclude>
+    <ClInclude Include="math\MathUtil.h">
+      <Filter>math</Filter>
+    </ClInclude>
+    <ClInclude Include="math\Random.h">
+      <Filter>math</Filter>
+    </ClInclude>
+    <ClInclude Include="core\Timer.h">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\StateMachine.h">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\SaveData.h">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\UiCommon.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\UiButton.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\UiGauge.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\ScreenFade.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\UiToast.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\UiRenderer.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="2d\BitmapFont.h">
+      <Filter>2d</Filter>
+    </ClInclude>
+    <ClInclude Include="debug\DebugDraw.h">
+      <Filter>debug</Filter>
+    </ClInclude>
+    <ClInclude Include="debug\LineBatch.h">
+      <Filter>debug</Filter>
+    </ClInclude>
+    <ClInclude Include="debug\LineGeometry.h">
+      <Filter>debug</Filter>
+    </ClInclude>
+    <ClInclude Include="debug\LogPanel.h">
+      <Filter>debug</Filter>
     </ClInclude>
     <ClInclude Include="startup\SakuraStorm.h">
       <Filter>scene</Filter>

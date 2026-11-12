@@ -235,6 +235,18 @@ namespace EditorLayout
         drawList->AddRectFilled(p0, { p0.x + (p1.x - p0.x) * f, p1.y }, color);
     }
 
+    void DrawViewportRect(const Vector2& center, const Vector2& size, unsigned int color)
+    {
+        if (!g_input.valid) {
+            return;
+        }
+        const float scaleX = (g_imageMax.x - g_imageMin.x) / WinApp::kGameWidth;
+        const float scaleY = (g_imageMax.y - g_imageMin.y) / WinApp::kGameHeight;
+        const ImVec2 p0 = { g_imageMin.x + (center.x - size.x * 0.5f) * scaleX, g_imageMin.y + (center.y - size.y * 0.5f) * scaleY };
+        const ImVec2 p1 = { g_imageMin.x + (center.x + size.x * 0.5f) * scaleX, g_imageMin.y + (center.y + size.y * 0.5f) * scaleY };
+        ImGui::GetForegroundDrawList()->AddRectFilled(p0, p1, color);
+    }
+
     void DrawViewportText(const Vector2& center, const char* text, float sizePx, unsigned int color)
     {
         if (!g_input.valid) {

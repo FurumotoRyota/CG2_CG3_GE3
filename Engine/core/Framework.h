@@ -39,6 +39,9 @@ protected:
     virtual void Update() {}
     // ImGui描画（Begin/End は Framework 側で行う）
     virtual void DrawImGui() {}
+    // シーンを描いたあと（ポストエフェクトの前）に呼ばれる。デバッグ描画など、シーンの上に重ねたいものを描く
+    // 呼ばれる時点では描画の準備が済んでいないので、スプライトを描くときは先に spriteCommon_.PreDraw() を呼ぶこと
+    virtual void DrawOverlay() {}
 
     WinApp winApp_;
     FrameRateController frameRate_;
