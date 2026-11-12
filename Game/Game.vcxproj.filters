@@ -1,70 +1,24 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="ソース ファイル">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
     <Filter Include="ヘッダー ファイル">
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
       <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
     </Filter>
-    <Filter Include="リソース ファイル">
-      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
-      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
-    </Filter>
-    <Filter Include="ヘッダー ファイル\ソース ファイル">
-      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
-      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
     <ClCompile Include="Game.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="main.cpp">
+      <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="StartScene.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="game\DustBurst.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="game\GameObject.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="game\GridNav.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="game\MapData.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="game\MapRenderer.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="game\SaloonDoors.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="game\Tumbleweeds.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="scene\MapEditorScene.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="scene\ResultScene.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="scene\SakuraStorm.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="scene\StartupScene.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="scene\TitleScene.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="scene\WesternShooterEnemyAI.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="scene\WesternShooterScene.cpp">
-      <Filter>ヘッダー ファイル\ソース ファイル</Filter>
+      <Filter>ソース ファイル</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -72,60 +26,6 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="StartScene.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game\DustBurst.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game\GameObject.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game\GameObjectPool.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game\GridNav.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game\MapData.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game\MapRenderer.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game\SaloonDoors.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game\SpinningObject.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game\Tumbleweeds.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="game2d\CubeMesh.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="scene\MapEditorScene.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="scene\ResultScene.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="scene\SakuraStorm.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="scene\StartupBrushPath.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="scene\StartupScene.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="scene\TitleScene.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="scene\WesternShooterCommon.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="scene\WesternShooterScene.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
   </ItemGroup>

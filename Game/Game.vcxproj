@@ -253,42 +253,10 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="StartScene.cpp" />
-    <ClCompile Include="game\DustBurst.cpp" />
-    <ClCompile Include="game\GameObject.cpp" />
-    <ClCompile Include="game\GridNav.cpp" />
-    <ClCompile Include="game\MapData.cpp" />
-    <ClCompile Include="game\MapRenderer.cpp" />
-    <ClCompile Include="game\SaloonDoors.cpp" />
-    <ClCompile Include="game\Tumbleweeds.cpp" />
-    <ClCompile Include="scene\MapEditorScene.cpp" />
-    <ClCompile Include="scene\ResultScene.cpp" />
-    <ClCompile Include="scene\SakuraStorm.cpp" />
-    <ClCompile Include="scene\StartupScene.cpp" />
-    <ClCompile Include="scene\TitleScene.cpp" />
-    <ClCompile Include="scene\WesternShooterEnemyAI.cpp" />
-    <ClCompile Include="scene\WesternShooterScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game.h" />
     <ClInclude Include="StartScene.h" />
-    <ClInclude Include="game\DustBurst.h" />
-    <ClInclude Include="game\GameObject.h" />
-    <ClInclude Include="game\GameObjectPool.h" />
-    <ClInclude Include="game\GridNav.h" />
-    <ClInclude Include="game\MapData.h" />
-    <ClInclude Include="game\MapRenderer.h" />
-    <ClInclude Include="game\SaloonDoors.h" />
-    <ClInclude Include="game\SpinningObject.h" />
-    <ClInclude Include="game\Tumbleweeds.h" />
-    <ClInclude Include="game2d\CubeMesh.h" />
-    <ClInclude Include="scene\MapEditorScene.h" />
-    <ClInclude Include="scene\ResultScene.h" />
-    <ClInclude Include="scene\SakuraStorm.h" />
-    <ClInclude Include="scene\StartupBrushPath.h" />
-    <ClInclude Include="scene\StartupScene.h" />
-    <ClInclude Include="scene\TitleScene.h" />
-    <ClInclude Include="scene\WesternShooterCommon.h" />
-    <ClInclude Include="scene\WesternShooterScene.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

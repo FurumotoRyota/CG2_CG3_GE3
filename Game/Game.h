@@ -2,20 +2,14 @@
 #include "core/Framework.h"
 
 /// <summary>
-/// このゲーム固有の設定（BGM・最初のシーン・システム用ImGui）
+/// このゲーム固有の設定（最初のシーン・メニュー）
+/// 3人で作るゲームの出発点。まずはここから機能を足していく
 /// </summary>
 class Game : public Framework
 {
 protected:
     void Initialize() override;
-    const wchar_t* WindowTitle() const override { return L"Western Shooter"; } // ウィンドウの題名
-    void Finalize() override;
+    const wchar_t* WindowTitle() const override { return L"My Game"; } // ウィンドウの題名（ゲーム名が決まったら変える）
     void Update() override;
     void DrawImGui() override;
-
-private:
-    void ToggleBgm(); // BGMの再生/一時停止を切り替える（最初の1回目は頭から再生する）
-
-    Audio::SoundHandle bgmHandle_ = Audio::kInvalidHandle;
-    bool bgmStarted_ = false; // 一度でも再生を始めたか（起動しただけでは鳴らさない）
 };
