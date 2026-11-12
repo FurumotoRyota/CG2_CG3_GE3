@@ -287,6 +287,8 @@
     <ClCompile Include="particle\ParticleEmitter.cpp" />
     <ClCompile Include="particle\ParticleSystem.cpp" />
     <ClCompile Include="scene\SceneManager.cpp" />
+    <ClCompile Include="startup\SakuraStorm.cpp" />
+    <ClCompile Include="startup\StartupScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="2d\Sprite.h" />
@@ -345,6 +347,9 @@
     <ClInclude Include="scene\Scene.h" />
     <ClInclude Include="scene\SceneContext.h" />
     <ClInclude Include="scene\SceneManager.h" />
+    <ClInclude Include="startup\SakuraStorm.h" />
+    <ClInclude Include="startup\StartupBrushPath.h" />
+    <ClInclude Include="startup\StartupScene.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Shaders\GeometryModel.GS.hlsl">

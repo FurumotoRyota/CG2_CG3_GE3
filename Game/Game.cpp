@@ -1,5 +1,8 @@
 ﻿#include "Game.h"
 #include "StartScene.h"
+#include "startup/StartupScene.h"
+#include "scene/SceneContext.h"
+#include "scene/SceneManager.h"
 
 #ifdef USE_IMGUI
 #include "imgui/imgui.h"
@@ -9,8 +12,13 @@ void Game::Initialize()
 {
     Framework::Initialize();
 
+    // スタートアップ演出が終わったら、StartScene へ進む（このエンジンの起動演出。ゲームが変わっても必ず流す）
+    StartupScene::s_hooks.onFinish = [](SceneContext* ctx) {
+        ctx->sceneManager->ChangeScene<StartScene>();
+    };
+
     // 最初のシーン
-    sceneManager_.ChangeScene<StartScene>();
+    sceneManager_.ChangeScene<StartupScene>();
 }
 
 void Game::Update()
@@ -30,6 +38,9 @@ void Game::DrawImGui()
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("シーン")) {
+            if (ImGui::MenuItem("スタートアップ演出")) {
+                sceneManager_.ChangeScene<StartupScene>();
+            }
             if (ImGui::MenuItem("スタート")) {
                 sceneManager_.ChangeScene<StartScene>();
             }

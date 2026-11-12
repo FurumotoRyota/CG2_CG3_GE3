@@ -6,7 +6,7 @@ DirectX12 の自作エンジンで、3人で1つのゲームを作るための�
 
 | フォルダ | 中身 |
 | --- | --- |
-| `Engine/` | エンジン本体（描画・入力・サウンドなど）。基本は触らず、変更するときは相談する |
+| `Engine/` | エンジン本体（描画・入力・サウンドなど）。起動演出 `Engine/startup/` もここ。基本は触らず、変更するときは相談する |
 | `externals/` | 外部ライブラリ（DirectXTex・assimp・ImGui など） |
 | `Game/` | ゲーム本体。みんなが作業する場所 |
 | `Game/resources/` | 画像・モデル・音などの素材 |
@@ -16,6 +16,12 @@ DirectX12 の自作エンジンで、3人で1つのゲームを作るための�
 1. `git clone` したあと、`CG2.2.slnx` を Visual Studio で開く
 2. スタートアップ プロジェクトを **Game** にする
 3. 構成は **Development | x64** を選んでビルド・実行（Debug は重いので、普段は使わない）
+
+## 起動演出
+
+エンジンの起動演出（スタートアップ演出）は `Engine/startup/` にあり、どのゲームでも最初に流れます。
+演出が終わったあとのシーンは `Game/Game.cpp` の `StartupScene::s_hooks.onFinish` で決めます。
+演出の素材は `Engine/resources/startup/` にあり、ビルド時に `Game/Engine/resources/` へコピーされます。
 
 ## ブランチのルール
 

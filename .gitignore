@@ -372,8 +372,8 @@ resources/videos/
 *.m4v
 *.wmv
 
-# Game post-build copy of Engine shaders / runtime logs / local backups
-Game/Engine/Shaders/
+# Game post-build copy of Engine shaders/resources / runtime logs / local backups
+Game/Engine/
 Game/logs/
 _backup_before_strip/
 Claude outputs/

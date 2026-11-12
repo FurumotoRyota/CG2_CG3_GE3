@@ -177,7 +177,7 @@
       <AdditionalOptions> /ignore:4049 /ignore:4098 %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll" &amp; robocopy "$(SolutionDir)Engine\Shaders" "$(ProjectDir)Engine\Shaders" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; exit /b 0</Command>
+      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll" &amp; robocopy "$(SolutionDir)Engine\Shaders" "$(ProjectDir)Engine\Shaders" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; robocopy "$(SolutionDir)Engine\resources" "$(ProjectDir)Engine\resources" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; exit /b 0</Command>
     </PostBuildEvent>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -203,7 +203,7 @@
       <AdditionalOptions> /ignore:4049 /ignore:4098 %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll" &amp; robocopy "$(SolutionDir)Engine\Shaders" "$(ProjectDir)Engine\Shaders" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; exit /b 0</Command>
+      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll" &amp; robocopy "$(SolutionDir)Engine\Shaders" "$(ProjectDir)Engine\Shaders" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; robocopy "$(SolutionDir)Engine\resources" "$(ProjectDir)Engine\resources" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; exit /b 0</Command>
     </PostBuildEvent>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -229,7 +229,7 @@
       <AdditionalOptions> /ignore:4049 /ignore:4098 %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll" &amp; robocopy "$(SolutionDir)Engine\Shaders" "$(ProjectDir)Engine\Shaders" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; exit /b 0</Command>
+      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll" &amp; robocopy "$(SolutionDir)Engine\Shaders" "$(ProjectDir)Engine\Shaders" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; robocopy "$(SolutionDir)Engine\resources" "$(ProjectDir)Engine\resources" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; exit /b 0</Command>
     </PostBuildEvent>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>

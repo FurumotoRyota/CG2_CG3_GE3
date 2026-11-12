@@ -171,6 +171,12 @@
     <ClCompile Include="scene\SceneManager.cpp">
       <Filter>scene</Filter>
     </ClCompile>
+    <ClCompile Include="startup\SakuraStorm.cpp">
+      <Filter>scene</Filter>
+    </ClCompile>
+    <ClCompile Include="startup\StartupScene.cpp">
+      <Filter>scene</Filter>
+    </ClCompile>
     <ClCompile Include="3d\PostProcess.cpp" />
     <ClCompile Include="3d\RenderLook.cpp" />
     <ClCompile Include="3d\RainSystem.cpp" />
@@ -316,6 +322,15 @@
       <Filter>scene</Filter>
     </ClInclude>
     <ClInclude Include="scene\SceneManager.h">
+      <Filter>scene</Filter>
+    </ClInclude>
+    <ClInclude Include="startup\SakuraStorm.h">
+      <Filter>scene</Filter>
+    </ClInclude>
+    <ClInclude Include="startup\StartupBrushPath.h">
+      <Filter>scene</Filter>
+    </ClInclude>
+    <ClInclude Include="startup\StartupScene.h">
       <Filter>scene</Filter>
     </ClInclude>
     <ClInclude Include="3d\PostProcess.h" />
