@@ -94,9 +94,11 @@
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\Common.props" />
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Development|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\Common.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -110,9 +112,12 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions> /ignore:4049 /ignore:4098 %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
+      <GenerateCategoryTags>false</GenerateCategoryTags>
+      <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -128,9 +133,12 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions> /ignore:4049 /ignore:4098 %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
+      <GenerateCategoryTags>false</GenerateCategoryTags>
+      <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Development|Win32'">
@@ -146,9 +154,12 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions> /ignore:4049 /ignore:4098 %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
+      <GenerateCategoryTags>false</GenerateCategoryTags>
+      <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -163,12 +174,15 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions> /ignore:4049 /ignore:4098 %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll"</Command>
+      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll" &amp; robocopy "$(SolutionDir)Engine\Shaders" "$(ProjectDir)Engine\Shaders" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; exit /b 0</Command>
     </PostBuildEvent>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
+      <GenerateCategoryTags>false</GenerateCategoryTags>
+      <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -181,17 +195,20 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(SolutionDir)CG2.2\Engine;$(SolutionDir)CG2.2\externals;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Engine;$(SolutionDir)externals;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions> /ignore:4049 /ignore:4098 %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll"</Command>
+      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll" &amp; robocopy "$(SolutionDir)Engine\Shaders" "$(ProjectDir)Engine\Shaders" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; exit /b 0</Command>
     </PostBuildEvent>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
+      <GenerateCategoryTags>false</GenerateCategoryTags>
+      <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Development|x64'">
@@ -204,24 +221,27 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(SolutionDir)CG2.2\Engine;$(SolutionDir)CG2.2\externals;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Engine;$(SolutionDir)externals;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions> /ignore:4049 /ignore:4098 %(AdditionalOptions)</AdditionalOptions>
     </Link>
     <PostBuildEvent>
-      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll"</Command>
+      <Command>copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll" &amp; robocopy "$(SolutionDir)Engine\Shaders" "$(ProjectDir)Engine\Shaders" /MIR /NJH /NJS /NP /NFL /NDL &gt;nul &amp; exit /b 0</Command>
     </PostBuildEvent>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
+      <GenerateCategoryTags>false</GenerateCategoryTags>
+      <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ProjectReference Include="..\CG2.2\Engine\EngineLib.vcxproj">
+    <ProjectReference Include="..\Engine\EngineLib.vcxproj">
       <Project>{a3093ff8-d93d-4553-81a7-b975d03f6133}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\CG2.2\externals\DirectXTex\DirectXTex_Desktop_2022_Win10.vcxproj">
+    <ProjectReference Include="..\externals\DirectXTex\DirectXTex_Desktop_2022_Win10.vcxproj">
       <Project>{371b9fa9-4c90-4ac6-a123-aced756d6c77}</Project>
     </ProjectReference>
   </ItemGroup>
@@ -233,10 +253,42 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="StartScene.cpp" />
+    <ClCompile Include="game\DustBurst.cpp" />
+    <ClCompile Include="game\GameObject.cpp" />
+    <ClCompile Include="game\GridNav.cpp" />
+    <ClCompile Include="game\MapData.cpp" />
+    <ClCompile Include="game\MapRenderer.cpp" />
+    <ClCompile Include="game\SaloonDoors.cpp" />
+    <ClCompile Include="game\Tumbleweeds.cpp" />
+    <ClCompile Include="scene\MapEditorScene.cpp" />
+    <ClCompile Include="scene\ResultScene.cpp" />
+    <ClCompile Include="scene\SakuraStorm.cpp" />
+    <ClCompile Include="scene\StartupScene.cpp" />
+    <ClCompile Include="scene\TitleScene.cpp" />
+    <ClCompile Include="scene\WesternShooterEnemyAI.cpp" />
+    <ClCompile Include="scene\WesternShooterScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game.h" />
     <ClInclude Include="StartScene.h" />
+    <ClInclude Include="game\DustBurst.h" />
+    <ClInclude Include="game\GameObject.h" />
+    <ClInclude Include="game\GameObjectPool.h" />
+    <ClInclude Include="game\GridNav.h" />
+    <ClInclude Include="game\MapData.h" />
+    <ClInclude Include="game\MapRenderer.h" />
+    <ClInclude Include="game\SaloonDoors.h" />
+    <ClInclude Include="game\SpinningObject.h" />
+    <ClInclude Include="game\Tumbleweeds.h" />
+    <ClInclude Include="game2d\CubeMesh.h" />
+    <ClInclude Include="scene\MapEditorScene.h" />
+    <ClInclude Include="scene\ResultScene.h" />
+    <ClInclude Include="scene\SakuraStorm.h" />
+    <ClInclude Include="scene\StartupBrushPath.h" />
+    <ClInclude Include="scene\StartupScene.h" />
+    <ClInclude Include="scene\TitleScene.h" />
+    <ClInclude Include="scene\WesternShooterCommon.h" />
+    <ClInclude Include="scene\WesternShooterScene.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
